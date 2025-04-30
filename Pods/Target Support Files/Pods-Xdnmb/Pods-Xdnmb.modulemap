@@ -1,0 +1,6 @@
+module Pods_Xdnmb {
+  umbrella header "Pods-Xdnmb-umbrella.h"
+
+  export *
+  module * { export * }
+}
