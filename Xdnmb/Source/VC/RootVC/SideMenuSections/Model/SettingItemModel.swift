@@ -10,15 +10,12 @@ import Foundation
 struct SettingItemModel {
     let title: String
     let image: UIImage?
-    let index: Int
-    var type: SettingItemType {
-        return SettingItemType(rawValue: index) ?? .collection
-    }
+    let type: SettingItemType
 
-    init(title: String, image: UIImage?, index: Int) {
+    init(title: String, image: UIImage?, type: SettingItemType) {
         self.title = title
         self.image = image
-        self.index = index
+        self.type = type
     }
 }
 

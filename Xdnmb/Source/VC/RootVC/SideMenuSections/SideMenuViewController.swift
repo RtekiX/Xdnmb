@@ -9,7 +9,17 @@ import UIKit
 import Foundation
 
 class SideMenuViewController: UIViewController {
-    private var sectionManagers: [SectionManagable] = []
+    private enum SectionType: Int, CaseIterable {
+        case bannder = 0
+        case setting
+        case module
+    }
+    
+    private lazy var sectionManagers: [SectionManagable] = [
+        BannerSection(with: listCollectionView),
+        SettingSection(with: listCollectionView),
+        ModuleSection(with: listCollectionView)
+    ]
 
     private lazy var listCollectionView: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
@@ -47,27 +57,45 @@ class SideMenuViewController: UIViewController {
     }
 
     private func setupSections() {
-        sectionManagers = [
-            BannerSection(with: listCollectionView),
-            SettingSection(with: listCollectionView),
-            ModuleSection(with: listCollectionView)
-        ]
-
         sectionManagers.forEach { listCollectionView.register($0.cellClass, forCellWithReuseIdentifier: $0.cellIdentifier) }
+    }
+    
+    private func getSectionManager(of type: SectionType) -> SectionManagable? {
+        let index = type.rawValue
+        guard index > 0, index <= self.sectionManagers.count else {
+            return nil
+        }
+        return self.sectionManagers[index]
+    }
+}
+
+extension SideMenuViewController {
+    func loadData() {
+        guard let moduleSectionManager = getSectionManager(of: .module) as? ModuleSection else {
+            return
+        }
+        moduleSectionManager.loadData()
     }
 }
 
 extension SideMenuViewController: UICollectionViewDelegate, UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        sectionManagers[section].numberOfItems()
+        guard sectionManagers.count > section, section >= 0 else { return 0 }
+        return sectionManagers[section].numberOfItems()
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        sectionManagers[indexPath.section].cellForItem(at: indexPath.row)
+        guard sectionManagers.count > indexPath.section, indexPath.section >= 0 else { return UICollectionViewCell() }
+        return sectionManagers[indexPath.section].cellForItem(at: indexPath.row)
     }
 
     func numberOfSections(in collectionView: UICollectionView) -> Int {
         sectionManagers.count
+    }
+
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        guard sectionManagers.count > indexPath.section, indexPath.section >= 0 else { return }
+        sectionManagers[indexPath.section].didSelectItem(at: indexPath.row)
     }
 }
 

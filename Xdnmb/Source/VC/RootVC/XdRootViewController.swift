@@ -18,10 +18,12 @@ class RootContentViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.backgroundColor = .white
         title = "xdnmb"
         setupNavigationBar()
         setupLeftBarButtonItem()
         setupRightBarButtonItem()
+        setupSideMenu()
     }
 
     private func setupNavigationBar() {
@@ -47,6 +49,10 @@ class RootContentViewController: UIViewController {
 
     @objc private func rightBarButtonItemTapped() {
         print("rightBarButtonItemTapped")
+    }
+    
+    private func setupSideMenu() {
+        self.sideMenuVC.loadData()
     }
     
     private func openPopUpMenu() {

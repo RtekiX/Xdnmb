@@ -10,9 +10,19 @@ import Foundation
 
 class SettingSection: SectionManagable {
     private weak var collectionView: UICollectionView?
+    private var settingItemModels: [SettingItemModel] = []
 
     init(with collectionView: UICollectionView) {
         self.collectionView = collectionView
+        setupSettingItemModels()
+    }
+
+    private func setupSettingItemModels() {
+        settingItemModels = [
+            SettingItemModel(title: "收藏", image: UIImage(systemName: "star"), type: .collection),
+            SettingItemModel(title: "历史", image: UIImage(systemName: "clock"), type: .history),
+            SettingItemModel(title: "回复", image: UIImage(systemName: "arrowshape.turn.up.left"), type: .reply)
+        ]
     }
 
     func numberOfItems() -> Int {
@@ -21,6 +31,7 @@ class SettingSection: SectionManagable {
 
     func cellForItem(at index: Int) -> UICollectionViewCell {
         if let cell = collectionView?.dequeueReusableCell(withReuseIdentifier: "settingCell", for: IndexPath(item: index, section: 0)) as? SettingCell {
+            cell.update(with: settingItemModels)
             return cell
         }
         return UICollectionViewCell()
@@ -55,9 +66,11 @@ extension SettingSection {
             collectionView.backgroundColor = .clear
             collectionView.contentInsetAdjustmentBehavior = .always
             collectionView.showsHorizontalScrollIndicator = false
-            collectionView.alwaysBounceHorizontal = true
+            collectionView.alwaysBounceHorizontal = false
             return collectionView
         }()
+        
+        private var settingItemModels: [SettingItemModel] = []
         
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -70,17 +83,23 @@ extension SettingSection {
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }
+
+        func update(with settingItemModels: [SettingItemModel]) {
+            self.settingItemModels = settingItemModels
+            innerCollectionView.reloadData()
+        }
         
         func numberOfSections(in collectionView: UICollectionView) -> Int {
             return 1
         }
         
         func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-            return 4
+            return settingItemModels.count
         }
 
         func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-            if let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "settingItemCell", for: indexPath) as? SettingItemCell {
+            if let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "settingItemCell", for: indexPath) as? SettingItemCell, let model = safeModel(at: indexPath) {
+                cell.update(with: model)
                 return cell
             }
             return UICollectionViewCell()
@@ -88,6 +107,13 @@ extension SettingSection {
 
         func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
             return CGSize(width: 80, height: 80)
+        }
+        
+        func safeModel(at indexPath: IndexPath) -> SettingItemModel? {
+            guard indexPath.row >= 0, indexPath.row < self.settingItemModels.count else {
+                return nil
+            }
+            return self.settingItemModels[indexPath.row]
         }
     }
 
@@ -100,13 +126,33 @@ extension SettingSection {
             return label
         }()
 
+        private lazy var imageView: UIImageView = {
+            let imageView = UIImageView()
+            imageView.contentMode = .scaleAspectFit
+            return imageView
+        }()
+
         override init(frame: CGRect) {
             super.init(frame: frame)
             contentView.addSubview(title)
+            contentView.addSubview(imageView)
             contentView.backgroundColor = .red
-            title.snp.makeConstraints { make in
-                make.center.equalToSuperview()
+            imageView.snp.makeConstraints { make in
+                make.top.equalToSuperview().offset(10)
+                make.centerX.equalToSuperview()
+                make.bottom.lessThanOrEqualTo(title.snp.top).offset(-10)
+                make.width.height.equalTo(36)
             }
+
+            title.snp.makeConstraints { make in
+                make.centerX.equalToSuperview()
+                make.bottom.equalToSuperview().offset(-10)
+            }
+        }
+
+        func update(with settingItemModel: SettingItemModel) {
+            title.text = settingItemModel.title
+            imageView.image = settingItemModel.image
         }
         
         required init?(coder: NSCoder) {
