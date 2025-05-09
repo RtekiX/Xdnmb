@@ -302,4 +302,13 @@ final class APIManager {
             completion(.failure(error))
         })
     }
+
+    func getTimelineThreadList(completion: @escaping (Result<[ThreadItem], Error>) -> Void) {
+        let manager = AFHTTPSessionManager()
+        manager.get(urls.timelineList.absoluteString, parameters: nil, headers: nil, progress: nil, success: { [weak self] (task, responseObject) in
+            self?.responseArray(responseObject as Any, completion: completion)
+        }, failure: { (task, error) in
+            completion(.failure(error))
+        })
+    }
 }

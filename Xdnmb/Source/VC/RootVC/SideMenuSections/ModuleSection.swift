@@ -12,7 +12,7 @@ import AFNetworking
 class ModuleSection: SectionManagable {
     private weak var collectionView: UICollectionView?
     
-    private var currentExpandIndex: Int = -1
+    private var currentExpandIndex: Int = 0
 
     private var isExpanding: Bool {
         return currentExpandIndex >= 0
@@ -48,7 +48,7 @@ class ModuleSection: SectionManagable {
 
     func numberOfItems() -> Int {
         var count = forumCategories.count
-        if isExpanding {
+        if isExpanding, currentExpandIndex >= 0, currentExpandIndex < forumCategories.count {
             // 在展开的cell后插入子论坛
             count += forumCategories[currentExpandIndex].forums.count
         }
@@ -122,7 +122,8 @@ class ModuleSection: SectionManagable {
                 // 点击子论坛
                 let subIndex = index - currentExpandIndex - 1
                 if let forum: Forum = forumCategories[currentExpandIndex].forums[safe: subIndex] {
-                    print("Selected sub forum: \(forum.name)")
+                    // TODO: 跳转到对应版面
+                    
                 }
             } else {
                 // 点击主分类

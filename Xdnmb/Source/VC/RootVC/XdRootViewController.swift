@@ -16,6 +16,11 @@ class RootContentViewController: UIViewController {
         return sideMenuVC
     }()
     
+    private lazy var mainHomeVC: XdMainHomeViewController = {
+        let mainHomeVC = XdMainHomeViewController()
+        return mainHomeVC
+    }()
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .white
@@ -24,6 +29,7 @@ class RootContentViewController: UIViewController {
         setupLeftBarButtonItem()
         setupRightBarButtonItem()
         setupSideMenu()
+        setupMainHomeVC()
     }
 
     private func setupNavigationBar() {
@@ -53,6 +59,10 @@ class RootContentViewController: UIViewController {
     
     private func setupSideMenu() {
         self.sideMenuVC.loadData()
+    }
+
+    private func setupMainHomeVC() {
+        self.xd_addChild(mainHomeVC)
     }
     
     private func openPopUpMenu() {
