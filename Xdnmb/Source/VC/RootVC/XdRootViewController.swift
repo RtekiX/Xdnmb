@@ -8,10 +8,10 @@
 import UIKit
 import AFNetworking
 
-
-class RootContentViewController: UIViewController {
+class RootContentViewController: UIViewController, SideMenuNavigationDelegate {
     private lazy var sideMenuVC: SideMenuViewController = {
         let sideMenuVC = SideMenuViewController()
+        sideMenuVC.navigationDelegate = self
         sideMenuVC.modalPresentationStyle = .overFullScreen
         return sideMenuVC
     }()
@@ -20,6 +20,8 @@ class RootContentViewController: UIViewController {
         let mainHomeVC = XdMainHomeViewController()
         return mainHomeVC
     }()
+    
+    private var currentContentVC: UIViewController?
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -62,6 +64,7 @@ class RootContentViewController: UIViewController {
     }
 
     private func setupMainHomeVC() {
+        currentContentVC = mainHomeVC
         self.xd_addChild(mainHomeVC)
     }
     
@@ -111,6 +114,22 @@ class RootContentViewController: UIViewController {
             navController.view.subviews.first(where: { $0.backgroundColor == UIColor.black.withAlphaComponent(0.5) })?.removeFromSuperview()
         }
     }
+    
+    // MARK: - SideMenuNavigationDelegate
+    func sideMenuDidSelectForum(_ forum: Forum) {
+        closeSideMenu()
+        
+        // 替换当前内容视图为论坛视图
+        let forumVC = ForumViewController(forumId: Int(forum.id) ?? 0)
+        forumVC.title = forum.name
+        
+        if let currentVC = currentContentVC {
+            xd_removeChild(currentVC)
+        }
+        
+        currentContentVC = forumVC
+        xd_addChild(forumVC)
+    }
 }
 
 class XdRootViewController: UINavigationController {
@@ -141,6 +160,9 @@ extension UIViewController {
     func xd_addChild(_ child: UIViewController) {
         addChild(child)
         view.addSubview(child.view)
+        child.view.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
+        }
         child.didMove(toParent: self)
     }
 
@@ -150,4 +172,3 @@ extension UIViewController {
         child.removeFromParent()
     }
 }
-
