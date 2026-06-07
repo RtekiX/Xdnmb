@@ -6,26 +6,20 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		C847641B2FD5AB1F0032EBA4 /* Podfile in Resources */ = {isa = PBXBuildFile; fileRef = C84764192FD5AB1F0032EBA4 /* Podfile */; };
+		C847641C2FD5AB1F0032EBA4 /* xdnmb_api.md in Resources */ = {isa = PBXBuildFile; fileRef = C847641A2FD5AB1F0032EBA4 /* xdnmb_api.md */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		C84763B42FD5AAA70032EBA4 /* Xdnmb.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Xdnmb.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C84764192FD5AB1F0032EBA4 /* Podfile */ = {isa = PBXFileReference; lastKnownFileType = text; path = Podfile; sourceTree = "<group>"; };
+		C847641A2FD5AB1F0032EBA4 /* xdnmb_api.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = xdnmb_api.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		C84763C92FD5AAA70032EBA4 /* Exceptions for "Xdnmb" folder in "Xdnmb" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = C84763B32FD5AAA70032EBA4 /* Xdnmb */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C84763B62FD5AAA70032EBA4 /* Xdnmb */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				C84763C92FD5AAA70032EBA4 /* Exceptions for "Xdnmb" folder in "Xdnmb" target */,
-			);
 			path = Xdnmb;
 			sourceTree = "<group>";
 		};
@@ -45,6 +39,8 @@
 		C84763AB2FD5AAA70032EBA4 = {
 			isa = PBXGroup;
 			children = (
+				C84764192FD5AB1F0032EBA4 /* Podfile */,
+				C847641A2FD5AB1F0032EBA4 /* xdnmb_api.md */,
 				C84763B62FD5AAA70032EBA4 /* Xdnmb */,
 				C84763B52FD5AAA70032EBA4 /* Products */,
 			);
@@ -104,6 +100,8 @@
 			knownRegions = (
 				en,
 				Base,
+				"Base 2",
+				"base 2",
 			);
 			mainGroup = C84763AB2FD5AAA70032EBA4;
 			minimizedProjectReferenceProxies = 1;
@@ -122,6 +120,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C847641B2FD5AB1F0032EBA4 /* Podfile in Resources */,
+				C847641C2FD5AB1F0032EBA4 /* xdnmb_api.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

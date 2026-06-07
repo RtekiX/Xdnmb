@@ -2,11 +2,12 @@
 //  AppDelegate.swift
 //  Xdnmb
 //
-//  Created by rtekix on 2026/6/7.
+//  Created by Yuno's on 2025/4/30.
 //
 
 import UIKit
 import CoreData
+import LookinServer
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
