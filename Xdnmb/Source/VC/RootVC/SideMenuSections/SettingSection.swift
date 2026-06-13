@@ -7,6 +7,7 @@
 
 import UIKit
 import Foundation
+import SnapKit
 
 class SettingSection: SectionManagable {
     private weak var collectionView: UICollectionView?

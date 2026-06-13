@@ -7,8 +7,14 @@
 
 import UIKit
 import Foundation
+import SnapKit
+
+protocol SideMenuNavigationDelegate: AnyObject {
+    func sideMenuDidSelectForum(_ forum: Forum)
+}
 
 class SideMenuViewController: UIViewController {
+    weak var navigationDelegate: SideMenuNavigationDelegate?
     private enum SectionType: Int, CaseIterable {
         case bannder = 0
         case setting

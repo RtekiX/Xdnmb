@@ -6,7 +6,7 @@
 //
 
 import UIKit
-import AFNetworking
+import SnapKit
 
 class RootContentViewController: UIViewController, SideMenuNavigationDelegate {
     private lazy var sideMenuVC: SideMenuViewController = {

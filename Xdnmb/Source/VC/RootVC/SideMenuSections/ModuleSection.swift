@@ -7,7 +7,7 @@
 
 import UIKit
 import Foundation
-import AFNetworking
+import SnapKit
 
 class ModuleSection: SectionManagable {
     private weak var collectionView: UICollectionView?

@@ -43,7 +43,7 @@ protocol ControllerProtocol: AnyObject {
 
 /// 抽象的 Controller<View> 基类
 /// 实现通用的 Controller 逻辑框架
-open class AbstractController<V: ViewProtocol, C>: ControllerProtocol {
+class AbstractController<V: ViewProtocol, C>: ControllerProtocol {
     public let view: V
     public var context: C
     

@@ -7,6 +7,7 @@
 
 import UIKit
 import Foundation
+import SnapKit
 
 class BannerSection: SectionManagable {
     private weak var collectionView: UICollectionView?
