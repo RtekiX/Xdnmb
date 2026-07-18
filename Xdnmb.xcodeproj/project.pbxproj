@@ -29,6 +29,14 @@
 		B10000000000000000000014 /* RemoteImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000014 /* RemoteImage.swift */; };
 		B10000000000000000000015 /* StateViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000015 /* StateViews.swift */; };
 		B10000000000000000000016 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000016 /* Assets.xcassets */; };
+		B10000000000000000000017 /* PreviewSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000019 /* PreviewSupport.swift */; };
+		B10000000000000000000018 /* RefreshableInfiniteList.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000020 /* RefreshableInfiniteList.swift */; };
+		B10000000000000000000019 /* PageJumpSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000021 /* PageJumpSheet.swift */; };
+		B1000000000000000000001A /* ImageViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000022 /* ImageViewer.swift */; };
+		B1000000000000000000001B /* BoardPreferencesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000023 /* BoardPreferencesStore.swift */; };
+		B1000000000000000000001C /* QRCodeScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000024 /* QRCodeScannerView.swift */; };
+		B1000000000000000000001D /* KaomojiPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000025 /* KaomojiPicker.swift */; };
+		B1000000000000000000001E /* MainFeedChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000026 /* MainFeedChrome.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -56,6 +64,14 @@
 		F10000000000000000000016 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F10000000000000000000017 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		F10000000000000000000018 /* Xdnmb.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Xdnmb.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F10000000000000000000019 /* PreviewSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewSupport.swift; sourceTree = "<group>"; };
+		F10000000000000000000020 /* RefreshableInfiniteList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshableInfiniteList.swift; sourceTree = "<group>"; };
+		F10000000000000000000021 /* PageJumpSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageJumpSheet.swift; sourceTree = "<group>"; };
+		F10000000000000000000022 /* ImageViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageViewer.swift; sourceTree = "<group>"; };
+		F10000000000000000000023 /* BoardPreferencesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardPreferencesStore.swift; sourceTree = "<group>"; };
+		F10000000000000000000024 /* QRCodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeScannerView.swift; sourceTree = "<group>"; };
+		F10000000000000000000025 /* KaomojiPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaomojiPicker.swift; sourceTree = "<group>"; };
+		F10000000000000000000026 /* MainFeedChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainFeedChrome.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -115,6 +131,7 @@
 			children = (
 				F10000000000000000000003 /* AppModel.swift */,
 				F10000000000000000000004 /* XdnmbAppView.swift */,
+				F10000000000000000000019 /* PreviewSupport.swift */,
 			);
 			path = Application;
 			sourceTree = "<group>";
@@ -124,6 +141,7 @@
 			children = (
 				F10000000000000000000005 /* APIService.swift */,
 				F10000000000000000000006 /* IdentityStore.swift */,
+				F10000000000000000000023 /* BoardPreferencesStore.swift */,
 			);
 			path = Data;
 			sourceTree = "<group>";
@@ -157,6 +175,12 @@
 				F10000000000000000000013 /* ContentCards.swift */,
 				F10000000000000000000014 /* RemoteImage.swift */,
 				F10000000000000000000015 /* StateViews.swift */,
+				F10000000000000000000020 /* RefreshableInfiniteList.swift */,
+				F10000000000000000000021 /* PageJumpSheet.swift */,
+				F10000000000000000000022 /* ImageViewer.swift */,
+				F10000000000000000000024 /* QRCodeScannerView.swift */,
+				F10000000000000000000025 /* KaomojiPicker.swift */,
+				F10000000000000000000026 /* MainFeedChrome.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -299,6 +323,14 @@
 				B10000000000000000000013 /* ContentCards.swift in Sources */,
 				B10000000000000000000014 /* RemoteImage.swift in Sources */,
 				B10000000000000000000015 /* StateViews.swift in Sources */,
+				B10000000000000000000017 /* PreviewSupport.swift in Sources */,
+				B10000000000000000000018 /* RefreshableInfiniteList.swift in Sources */,
+				B10000000000000000000019 /* PageJumpSheet.swift in Sources */,
+				B1000000000000000000001A /* ImageViewer.swift in Sources */,
+				B1000000000000000000001B /* BoardPreferencesStore.swift in Sources */,
+				B1000000000000000000001C /* QRCodeScannerView.swift in Sources */,
+				B1000000000000000000001D /* KaomojiPicker.swift in Sources */,
+				B1000000000000000000001E /* MainFeedChrome.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -112,6 +112,11 @@ struct ThreadDetail: Decodable, Identifiable, Hashable, Sendable {
         case replies = "Replies"
     }
 
+    init(post: Post, replies: [Post]) {
+        self.post = post
+        self.replies = replies
+    }
+
     init(from decoder: Decoder) throws {
         post = try Post(from: decoder)
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -152,6 +157,12 @@ struct FeedEntry: Decodable, Identifiable, Hashable, Sendable {
         case userHash = "user_hash"
         case recentReplies = "recent_replies"
         case hidden = "hide"
+    }
+
+    init(post: Post, recentReplies: [Post], category: String) {
+        self.post = post
+        self.recentReplies = recentReplies
+        self.category = category
     }
 
     init(from decoder: Decoder) throws {

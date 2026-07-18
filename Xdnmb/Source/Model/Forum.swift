@@ -80,6 +80,33 @@ struct Forum: Decodable, Identifiable, Hashable, Sendable {
         case permissionLevel = "permission_level"
     }
 
+    init(
+        id: Int,
+        name: String,
+        message: String,
+        shownName: String? = nil,
+        threadCount: Int? = nil,
+        postCount: Int? = nil
+    ) {
+        self.id = id
+        self.name = name
+        sort = nil
+        self.threadCount = threadCount
+        self.postCount = postCount
+        isHidden = false
+        groupID = nil
+        self.message = message
+        autoDelete = nil
+        fuseID = nil
+        createdAt = nil
+        interval = nil
+        safeMode = true
+        permissionLevel = nil
+        status = "n"
+        updatedAt = nil
+        self.shownName = shownName
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = container.lossyInt(forKey: .id)
@@ -115,6 +142,14 @@ struct Timeline: Decodable, Identifiable, Hashable, Sendable {
         case maxPage = "max_page"
     }
 
+    init(id: Int, name: String, displayName: String, notice: String, maxPage: Int) {
+        self.id = id
+        self.name = name
+        self.displayName = displayName
+        self.notice = notice
+        self.maxPage = max(maxPage, 1)
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = container.lossyInt(forKey: .id)
@@ -132,6 +167,12 @@ struct SiteNotice: Decodable, Hashable, Sendable {
 
     enum CodingKeys: CodingKey {
         case content, date, enable
+    }
+
+    init(content: String, date: String, enable: Bool) {
+        self.content = content
+        self.date = date
+        self.enable = enable
     }
 
     init(from decoder: Decoder) throws {

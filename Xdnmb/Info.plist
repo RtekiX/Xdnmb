@@ -4,6 +4,10 @@
 <dict>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>用于将你在帖子中选择的图片保存到系统照片。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>用于扫描包含 userhash 饼干的二维码。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

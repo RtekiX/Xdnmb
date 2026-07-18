@@ -9,9 +9,11 @@ import SwiftUI
 struct ProfileScreen: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var identity: IdentityStore
+    @Environment(\.appRuntimeMode) private var runtimeMode
     @State private var showingIdentityEditor = false
     @State private var showingClearConfirmation = false
     @State private var showingAccountCenter = false
+    @State private var showingPrivacy = false
     @State private var recentThreadID: Int?
     @State private var accountMessage: String?
     @State private var isFindingLastPost = false
@@ -23,7 +25,6 @@ struct ProfileScreen: View {
             identityStatusSection
             identitySection
             accountSection
-            privacySection
             connectionSection
             Section {
                 Text("Xdnmb 是非官方客户端。请遵守站点规则，并妥善保管账号、饼干和 Feed ID。")
@@ -32,6 +33,14 @@ struct ProfileScreen: View {
             }
         }
         .navigationTitle("我的")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showingPrivacy = true } label: {
+                    Label("隐私说明", systemImage: "hand.raised.fill")
+                }
+                .accessibilityHint("查看完整隐私声明")
+            }
+        }
         .sheet(isPresented: $showingIdentityEditor) {
             IdentityEditor(identity: identity)
         }
@@ -39,6 +48,9 @@ struct ProfileScreen: View {
             if let accountCenterURL {
                 SafariView(url: accountCenterURL).ignoresSafeArea()
             }
+        }
+        .sheet(isPresented: $showingPrivacy) {
+            PrivacyStatementSheet()
         }
         .navigationDestination(isPresented: Binding(
             get: { recentThreadID != nil },
@@ -117,7 +129,13 @@ struct ProfileScreen: View {
 
     private var accountSection: some View {
         Section("实名账号后台") {
-            Button { showingAccountCenter = true } label: {
+            Button {
+                if runtimeMode.isPreview {
+                    accountMessage = "Preview 模式不会打开外部账号页面。"
+                } else {
+                    showingAccountCenter = true
+                }
+            } label: {
                 Label("打开账号与饼干中心", systemImage: "person.badge.key")
             }
             .disabled(accountCenterURL == nil)
@@ -127,17 +145,9 @@ struct ProfileScreen: View {
         }
     }
 
-    private var privacySection: some View {
-        Section("隐私说明") {
-            Label("发帖时仅发送 userhash，前台保持匿名", systemImage: "eye.slash")
-            Label("饼干保存在设备钥匙串，不会同步", systemImage: "lock.iphone")
-            Label("Feed ID 用于找回订阅，可单独备份", systemImage: "bookmark")
-        }
-    }
-
     private var connectionSection: some View {
         Section("连接") {
-            Button { Task { await app.bootstrap() } } label: {
+            Button { Task { await reconnect() } } label: {
                 Label("重新发现服务器节点", systemImage: "arrow.triangle.2.circlepath")
             }
             .disabled(app.isBootstrapping)
@@ -151,6 +161,10 @@ struct ProfileScreen: View {
         guard let hash = identity.userHash.nilIfBlank, !isFindingLastPost else { return }
         isFindingLastPost = true
         defer { isFindingLastPost = false }
+        if runtimeMode.isPreview {
+            recentThreadID = PreviewFixtures.threads[0].id
+            return
+        }
         do {
             recentThreadID = try await APIService.shared.lastPost(userHash: hash).threadID
         } catch is CancellationError {
@@ -158,6 +172,14 @@ struct ProfileScreen: View {
         } catch {
             accountMessage = error.localizedDescription
         }
+    }
+
+    private func reconnect() async {
+        guard !runtimeMode.isPreview else {
+            accountMessage = "Preview 正在使用本地示例数据。"
+            return
+        }
+        await app.bootstrap()
     }
 }
 
@@ -167,6 +189,7 @@ private struct IdentityEditor: View {
     @State private var userHash: String
     @State private var feedID: String
     @State private var errorMessage: String?
+    @State private var showingScanner = false
 
     init(identity: IdentityStore) {
         self.identity = identity
@@ -184,6 +207,9 @@ private struct IdentityEditor: View {
                     Text("可以粘贴纯 hash，或完整的 userhash=…；保存时会自动清理前缀。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    Button { openScanner() } label: {
+                        Label("扫描二维码导入", systemImage: "qrcode.viewfinder")
+                    }
                 }
                 Section("Feed ID") {
                     TextField("UUID", text: $feedID)
@@ -217,6 +243,48 @@ private struct IdentityEditor: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+            .sheet(isPresented: $showingScanner) {
+                NavigationStack {
+                    QRCodeScannerView { value in
+                        importScannedValue(value)
+                    }
+                    .ignoresSafeArea()
+                    .navigationTitle("扫描饼干二维码")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("取消") { showingScanner = false }
+                        }
+                    }
+                    .overlay(alignment: .bottom) {
+                        Text("将包含 userhash 的二维码放入取景框")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(.black.opacity(0.65), in: .capsule)
+                            .padding(.bottom, 24)
+                    }
+                }
+            }
+        }
+    }
+
+    private func openScanner() {
+        guard QRCodeScannerView.isAvailable else {
+            errorMessage = "当前设备无法使用二维码扫描，请手动粘贴 userhash。"
+            return
+        }
+        showingScanner = true
+    }
+
+    private func importScannedValue(_ value: String) {
+        do {
+            userHash = try IdentityStore.normalizeUserHash(value)
+            showingScanner = false
+        } catch {
+            errorMessage = "二维码中没有有效的 userhash。"
+            showingScanner = false
         }
     }
 
@@ -226,6 +294,56 @@ private struct IdentityEditor: View {
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct PrivacyStatementSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private let statements = [
+        ("eye.slash", "前台匿名", "浏览无需登录；发帖和回复时只向站点发送 userhash，帖子前台不会展示实名账号。"),
+        ("lock.iphone", "本地凭据", "userhash 保存在本机钥匙串，不通过 iCloud 同步；移除后 App 无法恢复。"),
+        ("bookmark", "订阅标识", "Feed ID 保存在本机偏好设置，并用于读取和管理站点订阅。"),
+        ("camera.viewfinder", "相机", "相机仅在扫描饼干二维码时启用，画面不会被保存或上传。"),
+        ("photo", "照片", "只有在你选择上传或保存图片时，App 才会访问对应图片数据。"),
+        ("network", "网络请求", "论坛内容、发帖、回复和订阅操作会与 X 岛 API 及图片服务器通信。")
+    ]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Label("隐私与匿名说明", systemImage: "hand.raised.fill")
+                        .font(.title2.bold())
+                        .foregroundStyle(AppTheme.accent)
+                    Text("当前 API 未提供官方隐私声明接口，以下为 Xdnmb 客户端依据实际数据行为整理的本地说明。")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    ForEach(Array(statements.enumerated()), id: \.offset) { _, statement in
+                        HStack(alignment: .top, spacing: 14) {
+                            Image(systemName: statement.0)
+                                .font(.title3)
+                                .foregroundStyle(AppTheme.accent)
+                                .frame(width: 32)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(statement.1).font(.headline)
+                                Text(statement.2)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .navigationTitle("隐私说明")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
         }
     }
 }

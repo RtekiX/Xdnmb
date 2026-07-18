@@ -6,6 +6,11 @@
 import Combine
 import Foundation
 
+struct ThreadReadingPosition: Equatable {
+    var page: Int
+    var postID: Int?
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var forumGroups: [ForumCategory] = []
@@ -15,8 +20,22 @@ final class AppModel: ObservableObject {
     @Published private(set) var forumError: String?
     @Published private(set) var timelineError: String?
     @Published var subscribedThreadIDs: Set<Int> = []
+    @Published var feedScrollThreadID: Int?
+    @Published private(set) var threadReadingPositions: [Int: ThreadReadingPosition] = [:]
 
     private var bootstrapToken = UUID()
+
+    init(
+        forumGroups: [ForumCategory] = [],
+        timelines: [Timeline] = [],
+        notice: SiteNotice? = nil,
+        subscribedThreadIDs: Set<Int> = []
+    ) {
+        self.forumGroups = forumGroups
+        self.timelines = timelines
+        self.notice = notice
+        self.subscribedThreadIDs = subscribedThreadIDs
+    }
 
     var isConnected: Bool {
         !forumGroups.isEmpty || !timelines.isEmpty
@@ -68,5 +87,19 @@ final class AppModel: ObservableObject {
 
     func replaceSubscriptions(with ids: some Sequence<Int>) {
         subscribedThreadIDs = Set(ids.filter { $0 > 0 })
+    }
+
+    func threadReadingPosition(for threadID: Int) -> ThreadReadingPosition? {
+        threadReadingPositions[threadID]
+    }
+
+    func rememberThreadPosition(threadID: Int, page: Int, postID: Int?) {
+        guard threadID > 0 else { return }
+        let position = ThreadReadingPosition(
+            page: max(page, 1),
+            postID: postID
+        )
+        guard threadReadingPositions[threadID] != position else { return }
+        threadReadingPositions[threadID] = position
     }
 }

@@ -25,6 +25,7 @@ struct ComposerScreen: View {
     let onSuccess: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appRuntimeMode) private var runtimeMode
     @State private var content = ""
     @State private var title = ""
     @State private var name = ""
@@ -62,6 +63,7 @@ struct ComposerScreen: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .trailing)
+                    KaomojiPicker { insertKaomoji($0) }
                 }
                 Section("附件与署名") {
                     PhotosPicker(selection: $selectedPhoto, matching: .images) {
@@ -144,6 +146,15 @@ struct ComposerScreen: View {
         }
     }
 
+    private func insertKaomoji(_ value: String) {
+        if let lastCharacter = content.last, !lastCharacter.isWhitespace {
+            content.append(" ")
+        }
+        content.append(value)
+        editorFocused = true
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
     private func send() async {
         guard !isSending else { return }
         guard let hash = identity.userHash.nilIfBlank else {
@@ -152,6 +163,12 @@ struct ComposerScreen: View {
         }
         isSending = true
         defer { isSending = false }
+
+        if runtimeMode.isPreview {
+            dismiss()
+            await onSuccess()
+            return
+        }
 
         do {
             switch mode {

@@ -29,9 +29,12 @@ final class IdentityStore: ObservableObject {
     @Published private(set) var userHash: String
     @Published private(set) var feedID: String
 
+    private let storesPersistently: Bool
+
     var hasIdentity: Bool { userHash.nilIfBlank != nil }
 
     init() {
+        storesPersistently = true
         if let stored = KeychainStore.read(key: "userhash"),
            let normalized = try? Self.normalizeUserHash(stored) {
             userHash = normalized
@@ -49,24 +52,51 @@ final class IdentityStore: ObservableObject {
         }
     }
 
+
+    init(previewUserHash: String, feedID: String) {
+        storesPersistently = false
+        userHash = previewUserHash
+        self.feedID = feedID
+    }
+
     func save(userHash rawUserHash: String, feedID rawFeedID: String) throws {
         let userHash = try Self.normalizeUserHash(rawUserHash)
         guard let uuid = UUID(uuidString: rawFeedID.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             throw IdentityStoreError.invalidFeedID
         }
         let feedID = uuid.uuidString.lowercased()
-        try KeychainStore.save(userHash, key: "userhash")
-        UserDefaults.standard.set(feedID, forKey: "feedID")
+        if storesPersistently {
+            try KeychainStore.save(userHash, key: "userhash")
+            UserDefaults.standard.set(feedID, forKey: "feedID")
+        }
         self.userHash = userHash
         self.feedID = feedID
     }
 
     func clearIdentity() {
-        KeychainStore.delete(key: "userhash")
+        if storesPersistently {
+            KeychainStore.delete(key: "userhash")
+        }
         userHash = ""
     }
 
     static func normalizeUserHash(_ rawValue: String) throws -> String {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmedValue),
+           let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let value = components.queryItems?.first(where: {
+               $0.name.caseInsensitiveCompare("userhash") == .orderedSame
+           })?.value {
+            return try normalizeUserHash(value)
+        }
+        if let data = trimmedValue.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let value = object.first(where: {
+               $0.key.caseInsensitiveCompare("userhash") == .orderedSame
+           })?.value as? String {
+            return try normalizeUserHash(value)
+        }
+
         let cookieParts = rawValue.split(separator: ";", omittingEmptySubsequences: true)
         let candidate = cookieParts.lazy.compactMap { part -> String? in
             let value = String(part).trimmingCharacters(in: .whitespacesAndNewlines)

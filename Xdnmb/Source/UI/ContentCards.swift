@@ -28,7 +28,15 @@ struct ThreadCard: View {
                     path: thread.post.imagePath,
                     extension: thread.post.imageExtension
                 ) {
-                    RemoteImage(url: url, maxHeight: 220)
+                    RemoteImage(
+                        url: url,
+                        maxHeight: 220,
+                        viewerURL: APIService.imageURL(
+                            path: thread.post.imagePath,
+                            extension: thread.post.imageExtension,
+                            original: true
+                        )
+                    )
                 }
             }
             if let reply = thread.replies.last {
@@ -86,7 +94,7 @@ struct PostCard: View {
                     extension: post.imageExtension,
                     original: true
                 ) {
-                    RemoteImage(url: url, maxHeight: 460)
+                    RemoteImage(url: url, maxHeight: 460, viewerURL: url)
                 }
             }
             if post.sage {
@@ -173,6 +181,90 @@ struct NoticeCard: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.accent.opacity(0.1), in: .rect(cornerRadius: 18))
+    }
+}
+
+struct PinnedNoticeThreadCard: View {
+    let title: String
+    let content: String
+    var date: String? = nil
+    var symbol = "megaphone.fill"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: "pin.fill")
+                Text("置顶")
+                    .fontWeight(.bold)
+                Text("公告串")
+                Spacer()
+                if let date = date?.nilIfBlank {
+                    Text(date)
+                        .lineLimit(1)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(AppTheme.accent)
+            Label(title, systemImage: symbol)
+                .font(.headline)
+                .foregroundStyle(.primary)
+            Text(content.htmlPlainText)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            HStack {
+                Text("查看完整公告")
+                Spacer()
+                Image(systemName: "chevron.right")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .background(AppTheme.elevated, in: .rect(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(AppTheme.accent.opacity(0.28), lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("打开完整公告")
+    }
+}
+
+struct NoticeDetailScreen: View {
+    let title: String
+    let content: String
+    var date: String? = nil
+    var source = "X 岛公告"
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    Label(source, systemImage: "pin.fill")
+                        .font(.headline)
+                        .foregroundStyle(AppTheme.accent)
+                    Spacer()
+                    if let date = date?.nilIfBlank {
+                        Text(date)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text(title)
+                    .font(.title2.bold())
+                Text(content.htmlPlainText)
+                    .font(.body)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(20)
+            .background(AppTheme.elevated, in: .rect(cornerRadius: 18))
+            .padding(16)
+        }
+        .background(AppTheme.groupedBackground)
+        .navigationTitle("公告")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

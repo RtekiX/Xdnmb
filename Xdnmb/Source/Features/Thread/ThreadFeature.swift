@@ -22,6 +22,23 @@ private final class ThreadViewModel: ObservableObject {
         self.threadID = threadID
     }
 
+    func restore(page: Int) {
+        guard detail == nil else { return }
+        self.page = max(page, 1)
+    }
+
+    func loadPreview() {
+        detail = PreviewFixtures.threadDetail(id: threadID, onlyPO: onlyPO)
+        page = 1
+        isLoading = false
+        errorMessage = nil
+    }
+
+    func toggleOnlyPOPreview() {
+        onlyPO.toggle()
+        loadPreview()
+    }
+
     func load() async {
         let token = UUID()
         requestToken = token
@@ -68,10 +85,12 @@ struct ThreadDetailScreen: View {
 
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var identity: IdentityStore
+    @Environment(\.appRuntimeMode) private var runtimeMode
     @StateObject private var model: ThreadViewModel
     @State private var actionMessage: String?
     @State private var showingReply = false
     @State private var subscriptionBusy = false
+    @State private var didRestoreReadingPosition = false
 
     init(threadID: Int) {
         self.threadID = threadID
@@ -85,16 +104,17 @@ struct ThreadDetailScreen: View {
                     ScrollView {
                         LazyVStack(spacing: 12) {
                             PostCard(post: detail.post, isOriginalPoster: true)
-                                .id("root")
+                                .id(detail.post.id)
                             if detail.replies.isEmpty {
                                 ContentUnavailableView("暂无回复", systemImage: "bubble.left.and.bubble.right")
                                     .padding(.vertical, 32)
                             } else {
-                                ForEach(Array(detail.replies.enumerated()), id: \.offset) { _, post in
+                                ForEach(detail.replies, id: \.id) { post in
                                     PostCard(
                                         post: post,
                                         isOriginalPoster: !post.userHash.isEmpty && post.userHash == detail.post.userHash
                                     )
+                                    .id(post.id)
                                 }
                             }
                             if detail.maxPage > 1 {
@@ -104,19 +124,23 @@ struct ThreadDetailScreen: View {
                                     isLoading: model.isLoading,
                                     onPrevious: {
                                         await model.previousPage()
-                                        withAnimation { proxy.scrollTo("root", anchor: .top) }
+                                        remember(postID: model.detail?.post.id)
+                                        withAnimation { proxy.scrollTo(model.detail?.post.id, anchor: .top) }
                                     },
                                     onNext: {
                                         await model.nextPage()
-                                        withAnimation { proxy.scrollTo("root", anchor: .top) }
+                                        remember(postID: model.detail?.post.id)
+                                        withAnimation { proxy.scrollTo(model.detail?.post.id, anchor: .top) }
                                     }
                                 )
                             }
                         }
+                        .scrollTargetLayout()
                         .padding(16)
                     }
+                    .scrollPosition(id: threadScrollPosition, anchor: .center)
                     .background(AppTheme.groupedBackground)
-                    .refreshable { await model.load() }
+                    .refreshable { await load() }
                 }
             } else if model.isLoading {
                 LoadingView(title: "正在展开帖子")
@@ -125,7 +149,7 @@ struct ThreadDetailScreen: View {
                     title: "帖子加载失败",
                     message: model.errorMessage ?? "请稍后重试"
                 ) {
-                    await model.load()
+                    await load()
                 }
             }
         }
@@ -134,7 +158,7 @@ struct ThreadDetailScreen: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
-                    Task { await model.toggleOnlyPO() }
+                    Task { await toggleOnlyPO() }
                 } label: {
                     Label(
                         "只看 PO",
@@ -173,9 +197,9 @@ struct ThreadDetailScreen: View {
             .padding(.vertical, 10)
             .background(.bar)
         }
-        .task { await model.load() }
+        .task { await load() }
         .sheet(isPresented: $showingReply) {
-            ComposerScreen(mode: .reply(threadID), identity: identity) { await model.load() }
+            ComposerScreen(mode: .reply(threadID), identity: identity) { await load() }
         }
         .alert("提示", isPresented: Binding(
             get: { actionMessage != nil },
@@ -195,6 +219,17 @@ struct ThreadDetailScreen: View {
         guard !subscriptionBusy else { return }
         subscriptionBusy = true
         defer { subscriptionBusy = false }
+
+        if runtimeMode.isPreview {
+            if app.subscribedThreadIDs.contains(threadID) {
+                app.subscribedThreadIDs.remove(threadID)
+                actionMessage = "已取消订阅（Preview）"
+            } else {
+                app.subscribedThreadIDs.insert(threadID)
+                actionMessage = "已加入订阅（Preview）"
+            }
+            return
+        }
 
         do {
             if app.subscribedThreadIDs.contains(threadID) {
@@ -219,5 +254,40 @@ struct ThreadDetailScreen: View {
         } catch {
             actionMessage = error.localizedDescription
         }
+    }
+
+    private func load() async {
+        if !didRestoreReadingPosition {
+            if let position = app.threadReadingPosition(for: threadID) {
+                model.restore(page: position.page)
+            }
+            didRestoreReadingPosition = true
+        }
+        if runtimeMode.isPreview {
+            model.loadPreview()
+        } else {
+            await model.load()
+        }
+        remember(postID: threadScrollPosition.wrappedValue ?? model.detail?.post.id)
+    }
+
+    private func toggleOnlyPO() async {
+        if runtimeMode.isPreview {
+            model.toggleOnlyPOPreview()
+        } else {
+            await model.toggleOnlyPO()
+        }
+        remember(postID: model.detail?.post.id)
+    }
+
+    private var threadScrollPosition: Binding<Int?> {
+        Binding(
+            get: { app.threadReadingPosition(for: threadID)?.postID },
+            set: { remember(postID: $0) }
+        )
+    }
+
+    private func remember(postID: Int?) {
+        app.rememberThreadPosition(threadID: threadID, page: model.page, postID: postID)
     }
 }
