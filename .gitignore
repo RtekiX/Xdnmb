@@ -1,16 +1,43 @@
-# Xcode 产生的编译和用户配置文件
+#
+# .gitignore
+# Author: Maru
+#
+
+# Xcode build products and local caches
 build/
 DerivedData/
+com.apple.DeveloperTools/
+*.xcarchive
+*.dSYM
+*.dSYM.zip
+*.ipa
+
+# Xcode user-specific state
+xcuserdata/
+*.xcuserstate
 *.pbxuser
 *.mode1v3
 *.mode2v3
 *.perspectivev3
-xcuserdata/
+*.xccheckout
+*.xcscmblueprint
 
-# CocoaPods 过滤规则
-# 推荐忽略 Pods/ 目录，只保留 Podfile 和 Podfile.lock
+# Dependency caches (the app currently has no external dependencies)
 Pods/
+.build/
+.swiftpm/
 
-# 其他临时文件
+# Local assistant and editor configuration
+.claude/
+.codex/
+*.swp
+*.orig
+
+# Secrets and signing material
+.env
+.env.*
+*.p12
+*.mobileprovision
+
+# macOS metadata
 .DS_Store
-*.xcworkspace/xcuserdata/

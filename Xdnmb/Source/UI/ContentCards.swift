@@ -1,0 +1,187 @@
+//
+// ContentCards.swift
+// Author: Maru
+//
+
+import SwiftUI
+
+struct ThreadCard: View {
+    let thread: ForumThread
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            PostHeader(post: thread.post, showsNumber: true)
+            if let title = thread.post.displayTitle {
+                Text(title).font(.headline).foregroundStyle(.primary)
+            }
+            if thread.post.hidden {
+                Label("内容已被隐藏", systemImage: "eye.slash")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(thread.post.plainContent.nilIfBlank ?? "（无正文）")
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .lineLimit(6)
+                    .multilineTextAlignment(.leading)
+                if let url = APIService.imageURL(
+                    path: thread.post.imagePath,
+                    extension: thread.post.imageExtension
+                ) {
+                    RemoteImage(url: url, maxHeight: 220)
+                }
+            }
+            if let reply = thread.replies.last {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "arrowshape.turn.up.left.fill")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Text(reply.hidden ? "内容已被隐藏" : (reply.plainContent.nilIfBlank ?? "（无正文）"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(uiColor: .tertiarySystemBackground), in: .rect(cornerRadius: 10))
+            }
+            HStack {
+                Label("\(thread.post.replyCount)", systemImage: "bubble.left")
+                if thread.remainReplies > 0 { Text("另有 \(thread.remainReplies) 条回复") }
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .background(AppTheme.elevated, in: .rect(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(.separator.opacity(0.45), lineWidth: 0.5)
+        }
+        .contentShape(.rect)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("打开帖子详情")
+    }
+}
+
+struct PostCard: View {
+    let post: Post
+    let isOriginalPoster: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            PostHeader(post: post, showsNumber: true, isOriginalPoster: isOriginalPoster)
+            if let title = post.displayTitle { Text(title).font(.headline) }
+            if post.hidden {
+                Label("内容已被隐藏", systemImage: "eye.slash")
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(post.plainContent.nilIfBlank ?? "（无正文）")
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let url = APIService.imageURL(
+                    path: post.imagePath,
+                    extension: post.imageExtension,
+                    original: true
+                ) {
+                    RemoteImage(url: url, maxHeight: 460)
+                }
+            }
+            if post.sage {
+                Label("SAGE", systemImage: "leaf")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .background(AppTheme.elevated, in: .rect(cornerRadius: 18))
+    }
+}
+
+struct PostHeader: View {
+    let post: Post
+    var showsNumber = false
+    var isOriginalPoster = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(isOriginalPoster ? AppTheme.accent.gradient : Color.gray.gradient)
+                .frame(width: 28, height: 28)
+                .overlay {
+                    Text(String(post.displayName.prefix(1)))
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                }
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 5) {
+                    Text(post.displayName).font(.subheadline.weight(.semibold))
+                    if isOriginalPoster { Text("PO").badgeStyle(color: AppTheme.accent) }
+                    if post.admin { Text("管理").badgeStyle(color: .red) }
+                }
+                if let createdAt = post.createdAt.nilIfBlank {
+                    Text(createdAt).font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if showsNumber, post.id > 0 {
+                Text("No.\(post.id)")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+}
+
+struct BoardRow: View {
+    let forum: Forum
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "text.bubble.fill")
+                .foregroundStyle(AppTheme.accent)
+                .frame(width: 36, height: 36)
+                .background(AppTheme.accent.opacity(0.1), in: .rect(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(forum.displayName).font(.headline)
+                Text(forum.summary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct NoticeCard: View {
+    let notice: SiteNotice
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("站点公告", systemImage: "megaphone.fill")
+                .font(.headline)
+                .foregroundStyle(AppTheme.accent)
+            Text(notice.content.htmlPlainText).font(.subheadline).lineLimit(6)
+            if let date = notice.date.nilIfBlank {
+                Text(date).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.accent.opacity(0.1), in: .rect(cornerRadius: 18))
+    }
+}
+
+private extension View {
+    func badgeStyle(color: Color) -> some View {
+        font(.caption2.bold())
+            .foregroundStyle(color)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.12), in: .capsule)
+    }
+}
