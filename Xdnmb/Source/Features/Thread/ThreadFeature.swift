@@ -39,7 +39,7 @@ private final class ThreadViewModel: ObservableObject {
         loadPreview()
     }
 
-    func load() async {
+    func load(userHash: String?) async {
         let token = UUID()
         requestToken = token
         isLoading = true
@@ -47,7 +47,12 @@ private final class ThreadViewModel: ObservableObject {
             if requestToken == token { isLoading = false }
         }
         do {
-            let result = try await APIService.shared.thread(id: threadID, page: page, onlyPO: onlyPO)
+            let result = try await APIService.shared.thread(
+                id: threadID,
+                page: page,
+                onlyPO: onlyPO,
+                userHash: userHash
+            )
             guard requestToken == token, !Task.isCancelled else { return }
             detail = result
             page = min(max(page, 1), result.maxPage)
@@ -60,23 +65,23 @@ private final class ThreadViewModel: ObservableObject {
         }
     }
 
-    func toggleOnlyPO() async {
+    func toggleOnlyPO(userHash: String?) async {
         onlyPO.toggle()
         page = 1
         detail = nil
-        await load()
+        await load(userHash: userHash)
     }
 
-    func previousPage() async {
+    func previousPage(userHash: String?) async {
         guard page > 1, !isLoading else { return }
         page -= 1
-        await load()
+        await load(userHash: userHash)
     }
 
-    func nextPage() async {
+    func nextPage(userHash: String?) async {
         guard let detail, page < detail.maxPage, !isLoading else { return }
         page += 1
-        await load()
+        await load(userHash: userHash)
     }
 }
 
@@ -123,12 +128,12 @@ struct ThreadDetailScreen: View {
                                     maxPage: detail.maxPage,
                                     isLoading: model.isLoading,
                                     onPrevious: {
-                                        await model.previousPage()
+                                        await model.previousPage(userHash: identity.browsingUserHash)
                                         remember(postID: model.detail?.post.id)
                                         withAnimation { proxy.scrollTo(model.detail?.post.id, anchor: .top) }
                                     },
                                     onNext: {
-                                        await model.nextPage()
+                                        await model.nextPage(userHash: identity.browsingUserHash)
                                         remember(postID: model.detail?.post.id)
                                         withAnimation { proxy.scrollTo(model.detail?.post.id, anchor: .top) }
                                     }
@@ -197,7 +202,7 @@ struct ThreadDetailScreen: View {
             .padding(.vertical, 10)
             .background(.bar)
         }
-        .task { await load() }
+        .task(id: identity.browsingCookieID) { await load() }
         .sheet(isPresented: $showingReply) {
             ComposerScreen(mode: .reply(threadID), identity: identity) { await load() }
         }
@@ -212,7 +217,7 @@ struct ThreadDetailScreen: View {
     }
 
     private func toggleSubscription() async {
-        guard let hash = identity.userHash.nilIfBlank else {
+        guard let hash = identity.browsingUserHash else {
             actionMessage = APIError.missingIdentity.localizedDescription
             return
         }
@@ -266,7 +271,7 @@ struct ThreadDetailScreen: View {
         if runtimeMode.isPreview {
             model.loadPreview()
         } else {
-            await model.load()
+            await model.load(userHash: identity.browsingUserHash)
         }
         remember(postID: threadScrollPosition.wrappedValue ?? model.detail?.post.id)
     }
@@ -275,7 +280,7 @@ struct ThreadDetailScreen: View {
         if runtimeMode.isPreview {
             model.toggleOnlyPOPreview()
         } else {
-            await model.toggleOnlyPO()
+            await model.toggleOnlyPO(userHash: identity.browsingUserHash)
         }
         remember(postID: model.detail?.post.id)
     }

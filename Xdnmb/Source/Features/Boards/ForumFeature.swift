@@ -22,17 +22,22 @@ private final class ForumViewModel: ObservableObject {
         errorMessage = nil
     }
 
-    func load(forum: Forum, reset: Bool) async {
+    func load(forum: Forum, reset: Bool, userHash: String?) async {
         let targetPage = reset ? 1 : min(page + 1, forum.maxPage)
-        _ = await load(forum: forum, targetPage: targetPage, appending: !reset)
+        _ = await load(forum: forum, targetPage: targetPage, appending: !reset, userHash: userHash)
     }
 
-    func jump(forum: Forum, to targetPage: Int) async -> Bool {
+    func jump(forum: Forum, to targetPage: Int, userHash: String?) async -> Bool {
         guard (1...forum.maxPage).contains(targetPage) else { return false }
-        return await load(forum: forum, targetPage: targetPage, appending: false)
+        return await load(forum: forum, targetPage: targetPage, appending: false, userHash: userHash)
     }
 
-    private func load(forum: Forum, targetPage: Int, appending: Bool) async -> Bool {
+    private func load(
+        forum: Forum,
+        targetPage: Int,
+        appending: Bool,
+        userHash: String?
+    ) async -> Bool {
         if isLoading && appending { return false }
         let token = UUID()
         requestToken = token
@@ -41,7 +46,11 @@ private final class ForumViewModel: ObservableObject {
             if requestToken == token { isLoading = false }
         }
         do {
-            let result = try await APIService.shared.forumThreads(id: forum.id, page: targetPage)
+            let result = try await APIService.shared.forumThreads(
+                id: forum.id,
+                page: targetPage,
+                userHash: userHash
+            )
             guard requestToken == token, !Task.isCancelled else { return false }
             threads = appending ? threads.appendingUnique(result) : result
             page = targetPage
@@ -147,7 +156,9 @@ struct ForumScreen: View {
                 }
             }
         }
-        .task(id: forum.id) { await load(reset: true) }
+        .task(id: "\(forum.id)-\(identity.browsingCookieID?.uuidString ?? "anonymous")") {
+            await load(reset: true)
+        }
         .onAppear { updateChrome() }
         .onChange(of: isChromeActive) { updateChrome() }
         .onChange(of: model.page) { updateChrome() }
@@ -168,7 +179,7 @@ struct ForumScreen: View {
         if runtimeMode.isPreview {
             model.loadPreview()
         } else {
-            await model.load(forum: forum, reset: reset)
+            await model.load(forum: forum, reset: reset, userHash: identity.browsingUserHash)
         }
     }
 
@@ -178,7 +189,11 @@ struct ForumScreen: View {
             model.loadPreview(page: page)
             didLoad = true
         } else {
-            didLoad = await model.jump(forum: forum, to: page)
+            didLoad = await model.jump(
+                forum: forum,
+                to: page,
+                userHash: identity.browsingUserHash
+            )
         }
         guard didLoad else { return }
         scrollToTopRequest += 1

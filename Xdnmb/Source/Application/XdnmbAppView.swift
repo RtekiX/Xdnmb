@@ -50,9 +50,9 @@ struct XdnmbAppView: View {
         .environmentObject(identityStore)
         .environmentObject(boardPreferences)
         .environment(\.appRuntimeMode, runtimeMode)
-        .task {
+        .task(id: identityStore.browsingCookieID) {
             guard !runtimeMode.isPreview else { return }
-            await appModel.bootstrap()
+            await appModel.bootstrap(userHash: identityStore.browsingUserHash)
         }
     }
 }

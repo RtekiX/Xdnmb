@@ -17,7 +17,7 @@ private final class FeedViewModel: ObservableObject {
     @Published private(set) var canLoadMore = false
 
     private var requestToken = UUID()
-    private var loadedFeedID: String?
+    private var loadedRequestIdentity: String?
 
     func loadPreview(page: Int = 1, appending: Bool = false) {
         let previewEntries = page == 1 ? PreviewFixtures.feedEntries : []
@@ -28,24 +28,45 @@ private final class FeedViewModel: ObservableObject {
         canLoadMore = false
     }
 
-    func load(feedID: String, reset: Bool) async {
-        loadedFeedID = feedID
+    func load(feedID: String, reset: Bool, userHash: String?) async {
+        loadedRequestIdentity = requestIdentity(feedID: feedID, userHash: userHash)
         let targetPage = reset ? 1 : page + 1
-        _ = await load(feedID: feedID, targetPage: targetPage, appending: !reset)
+        _ = await load(
+            feedID: feedID,
+            targetPage: targetPage,
+            appending: !reset,
+            userHash: userHash
+        )
     }
 
-    func loadIfNeeded(feedID: String) async {
-        guard loadedFeedID != feedID else { return }
-        loadedFeedID = feedID
-        _ = await load(feedID: feedID, targetPage: 1, appending: false)
+    func loadIfNeeded(feedID: String, userHash: String?) async {
+        let loadIdentity = requestIdentity(feedID: feedID, userHash: userHash)
+        guard loadedRequestIdentity != loadIdentity else { return }
+        loadedRequestIdentity = loadIdentity
+        _ = await load(
+            feedID: feedID,
+            targetPage: 1,
+            appending: false,
+            userHash: userHash
+        )
     }
 
-    func jump(feedID: String, to targetPage: Int) async -> Bool {
+    func jump(feedID: String, to targetPage: Int, userHash: String?) async -> Bool {
         guard (1...Self.maximumPage).contains(targetPage) else { return false }
-        return await load(feedID: feedID, targetPage: targetPage, appending: false)
+        return await load(
+            feedID: feedID,
+            targetPage: targetPage,
+            appending: false,
+            userHash: userHash
+        )
     }
 
-    private func load(feedID: String, targetPage: Int, appending: Bool) async -> Bool {
+    private func load(
+        feedID: String,
+        targetPage: Int,
+        appending: Bool,
+        userHash: String?
+    ) async -> Bool {
         if isLoading && appending { return false }
         let token = UUID()
         requestToken = token
@@ -55,7 +76,11 @@ private final class FeedViewModel: ObservableObject {
         }
 
         do {
-            let result = try await APIService.shared.feed(id: feedID, page: targetPage)
+            let result = try await APIService.shared.feed(
+                id: feedID,
+                page: targetPage,
+                userHash: userHash
+            )
             guard requestToken == token, !Task.isCancelled else { return false }
             entries = appending ? entries.appendingUnique(result) : result
             page = targetPage
@@ -70,6 +95,10 @@ private final class FeedViewModel: ObservableObject {
             canLoadMore = false
             return false
         }
+    }
+
+    private func requestIdentity(feedID: String, userHash: String?) -> String {
+        "\(feedID)-\(userHash ?? "anonymous")"
     }
 }
 
@@ -134,7 +163,9 @@ struct FeedScreen: View {
                 .disabled(model.isLoading && model.entries.isEmpty)
             }
         }
-        .task(id: identity.feedID) { await loadIfNeeded() }
+        .task(id: "\(identity.feedID)-\(identity.browsingCookieID?.uuidString ?? "anonymous")") {
+            await loadIfNeeded()
+        }
         .sheet(isPresented: $showingPageJump) {
             PageJumpSheet(
                 currentPage: model.page,
@@ -184,7 +215,11 @@ struct FeedScreen: View {
         if runtimeMode.isPreview {
             model.loadPreview(page: reset ? 1 : model.page + 1, appending: !reset)
         } else {
-            await model.load(feedID: identity.feedID, reset: reset)
+            await model.load(
+                feedID: identity.feedID,
+                reset: reset,
+                userHash: identity.browsingUserHash
+            )
         }
         if model.errorMessage == nil {
             app.replaceSubscriptions(with: model.entries.map(\.id))
@@ -196,7 +231,10 @@ struct FeedScreen: View {
             guard model.entries.isEmpty else { return }
             model.loadPreview()
         } else {
-            await model.loadIfNeeded(feedID: identity.feedID)
+            await model.loadIfNeeded(
+                feedID: identity.feedID,
+                userHash: identity.browsingUserHash
+            )
         }
         if model.errorMessage == nil {
             app.replaceSubscriptions(with: model.entries.map(\.id))
@@ -209,7 +247,11 @@ struct FeedScreen: View {
             model.loadPreview(page: page)
             didLoad = true
         } else {
-            didLoad = await model.jump(feedID: identity.feedID, to: page)
+            didLoad = await model.jump(
+                feedID: identity.feedID,
+                to: page,
+                userHash: identity.browsingUserHash
+            )
         }
         guard didLoad else { return }
         app.replaceSubscriptions(with: model.entries.map(\.id))

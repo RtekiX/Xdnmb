@@ -41,7 +41,7 @@ final class AppModel: ObservableObject {
         !forumGroups.isEmpty || !timelines.isEmpty
     }
 
-    func bootstrap() async {
+    func bootstrap(userHash: String? = nil) async {
         let token = UUID()
         bootstrapToken = token
         isBootstrapping = true
@@ -50,8 +50,8 @@ final class AppModel: ObservableObject {
         }
 
         await APIService.shared.bootstrap()
-        async let groupRequest = APIService.shared.forumGroups()
-        async let timelineRequest = APIService.shared.timelines()
+        async let groupRequest = APIService.shared.forumGroups(userHash: userHash)
+        async let timelineRequest = APIService.shared.timelines(userHash: userHash)
         async let noticeRequest = try? APIService.shared.notice()
 
         var loadedGroups: [ForumCategory]?

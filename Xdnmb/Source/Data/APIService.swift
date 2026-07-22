@@ -88,6 +88,8 @@ actor APIService {
             configuration.timeoutIntervalForResource = 45
             configuration.waitsForConnectivity = true
             configuration.requestCachePolicy = .reloadRevalidatingCacheData
+            configuration.httpShouldSetCookies = false
+            configuration.httpCookieStorage = nil
             configuration.httpAdditionalHeaders = [
                 "Accept": "application/json,text/plain,*/*",
                 "User-Agent": "Xdnmb-iOS/1.0"
@@ -116,15 +118,15 @@ actor APIService {
         await discoverBackupServer()
     }
 
-    func forumGroups() async throws -> [ForumCategory] {
-        let groups: [ForumCategory] = try await get("Api/getForumList")
+    func forumGroups(userHash: String? = nil) async throws -> [ForumCategory] {
+        let groups: [ForumCategory] = try await get("Api/getForumList", userHash: userHash)
         return groups
             .filter { $0.id > 0 && $0.name.nilIfBlank != nil }
             .sorted { ($0.sort, $0.id) < ($1.sort, $1.id) }
     }
 
-    func timelines() async throws -> [Timeline] {
-        let values: [Timeline] = try await get("Api/getTimelineList")
+    func timelines(userHash: String? = nil) async throws -> [Timeline] {
+        let values: [Timeline] = try await get("Api/getTimelineList", userHash: userHash)
         return values.filter { $0.id > 0 && $0.displayName.nilIfBlank != nil }.deduplicatedByID()
     }
 
@@ -132,37 +134,40 @@ actor APIService {
         try await decodeRequest(url: noticeURL, endpoint: "nmb-notice.json")
     }
 
-    func timelineThreads(id: Int, page: Int) async throws -> [ForumThread] {
+    func timelineThreads(id: Int, page: Int, userHash: String? = nil) async throws -> [ForumThread] {
         guard id > 0 else { throw APIError.invalidPayload("时间线编号无效") }
         let values: [ForumThread] = try await get(
             "Api/timeline",
-            query: ["id": String(id), "page": String(max(page, 1))]
+            query: ["id": String(id), "page": String(max(page, 1))],
+            userHash: userHash
         )
         return values.filter { $0.id > 0 }.deduplicatedByID()
     }
 
-    func forumThreads(id: Int, page: Int) async throws -> [ForumThread] {
+    func forumThreads(id: Int, page: Int, userHash: String? = nil) async throws -> [ForumThread] {
         guard id > 0 else { throw APIError.invalidPayload("版块编号无效") }
         let values: [ForumThread] = try await get(
             "Api/showf",
-            query: ["id": String(id), "page": String(max(page, 1))]
+            query: ["id": String(id), "page": String(max(page, 1))],
+            userHash: userHash
         )
         return values.filter { $0.id > 0 }.deduplicatedByID()
     }
 
-    func thread(id: Int, page: Int, onlyPO: Bool) async throws -> ThreadDetail {
+    func thread(id: Int, page: Int, onlyPO: Bool, userHash: String? = nil) async throws -> ThreadDetail {
         guard id > 0 else { throw APIError.invalidPayload("串号无效") }
         let detail: ThreadDetail = try await get(
             onlyPO ? "Api/po" : "Api/thread",
-            query: ["id": String(id), "page": String(max(page, 1))]
+            query: ["id": String(id), "page": String(max(page, 1))],
+            userHash: userHash
         )
         guard detail.id > 0 else { throw APIError.invalidPayload("服务器没有返回有效的帖子") }
         return detail
     }
 
-    func reference(id: Int) async throws -> Post {
+    func reference(id: Int, userHash: String? = nil) async throws -> Post {
         guard id > 0 else { throw APIError.invalidPayload("引用编号无效") }
-        let post: Post = try await get("Api/ref", query: ["id": String(id)])
+        let post: Post = try await get("Api/ref", query: ["id": String(id)], userHash: userHash)
         guard post.id > 0 else { throw APIError.invalidPayload("引用的帖子不存在") }
         return post
     }
@@ -178,11 +183,12 @@ actor APIService {
         return value
     }
 
-    func feed(id: String, page: Int) async throws -> [FeedEntry] {
+    func feed(id: String, page: Int, userHash: String? = nil) async throws -> [FeedEntry] {
         let feedID = try Self.validatedFeedID(id)
         let values: [FeedEntry] = try await get(
             "Api/feed",
-            query: ["uuid": feedID, "page": String(max(page, 1))]
+            query: ["uuid": feedID, "page": String(max(page, 1))],
+            userHash: userHash
         )
         return values.filter { $0.id > 0 }.deduplicatedByID()
     }
@@ -262,17 +268,25 @@ actor APIService {
 
     private func get<Value: Decodable & Sendable>(
         _ path: String,
-        query: [String: String] = [:]
+        query: [String: String] = [:],
+        userHash: String? = nil
     ) async throws -> Value {
+        let hash = try userHash.map(Self.validatedUserHash)
         let primaryURL = try makeURL(base: baseURL, path: path, query: query)
         do {
-            return try await decodeRequest(url: primaryURL, endpoint: path)
+            return try await decodeRequest(
+                request: authenticatedRequest(url: primaryURL, userHash: hash),
+                endpoint: path
+            )
         } catch {
             if error is CancellationError { throw error }
             try Task.checkCancellation()
             let fallbackURL = try makeURL(base: backupURL, path: path, query: query)
             guard fallbackURL != primaryURL else { throw error }
-            return try await decodeRequest(url: fallbackURL, endpoint: path)
+            return try await decodeRequest(
+                request: authenticatedRequest(url: fallbackURL, userHash: hash),
+                endpoint: path
+            )
         }
     }
 
@@ -390,9 +404,11 @@ actor APIService {
         return url
     }
 
-    private func authenticatedRequest(url: URL, userHash: String) -> URLRequest {
+    private func authenticatedRequest(url: URL, userHash: String?) -> URLRequest {
         var request = URLRequest(url: url)
-        request.setValue("userhash=\(userHash)", forHTTPHeaderField: "Cookie")
+        if let userHash {
+            request.setValue("userhash=\(userHash)", forHTTPHeaderField: "Cookie")
+        }
         return request
     }
 

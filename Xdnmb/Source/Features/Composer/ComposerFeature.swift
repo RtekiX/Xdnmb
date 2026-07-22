@@ -34,15 +34,43 @@ struct ComposerScreen: View {
     @State private var isPreparingImage = false
     @State private var isSending = false
     @State private var errorMessage: String?
+    @State private var selectedCookieID: UUID?
     @FocusState private var editorFocused: Bool
+
+    init(
+        mode: ComposerMode,
+        identity: IdentityStore,
+        onSuccess: @escaping () async -> Void
+    ) {
+        self.mode = mode
+        self.identity = identity
+        self.onSuccess = onSuccess
+        _selectedCookieID = State(initialValue: identity.postingCookieID)
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 if !identity.hasIdentity {
                     Section {
-                        Label("请先在“我的”中导入 userhash 饼干", systemImage: "exclamationmark.shield")
+                        Label("请先在“我的”中通过二维码导入饼干", systemImage: "exclamationmark.shield")
                             .foregroundStyle(.orange)
+                    }
+                } else {
+                    Section("本次使用的饼干") {
+                        Picker("匿名身份", selection: $selectedCookieID) {
+                            ForEach(identity.cookies) { cookie in
+                                Text(cookie.name).tag(Optional(cookie.id))
+                            }
+                        }
+                        if let cookie = identity.cookie(id: selectedCookieID) {
+                            LabeledContent("标识", value: cookie.maskedUserHash)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("默认选择发帖主饼干；本次切换不会修改主饼干设置。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 Section("正文") {
@@ -102,7 +130,7 @@ struct ComposerScreen: View {
                         .fontWeight(.semibold)
                         .disabled(
                             content.nilIfBlank == nil ||
-                            !identity.hasIdentity ||
+                            identity.cookie(id: selectedCookieID) == nil ||
                             isPreparingImage ||
                             isSending
                         )
@@ -110,6 +138,11 @@ struct ComposerScreen: View {
             }
             .overlay { if isSending { SendingOverlay() } }
             .task(id: selectedPhoto) { await prepareSelectedPhoto() }
+            .onChange(of: identity.cookies.map(\.id)) {
+                if identity.cookie(id: selectedCookieID) == nil {
+                    selectedCookieID = identity.postingCookieID
+                }
+            }
             .onAppear { editorFocused = true }
             .interactiveDismissDisabled(isSending)
             .alert("操作失败", isPresented: Binding(
@@ -157,7 +190,7 @@ struct ComposerScreen: View {
 
     private func send() async {
         guard !isSending else { return }
-        guard let hash = identity.userHash.nilIfBlank else {
+        guard let hash = identity.cookie(id: selectedCookieID)?.userHash else {
             errorMessage = APIError.missingIdentity.localizedDescription
             return
         }

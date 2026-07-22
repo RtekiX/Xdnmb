@@ -30,17 +30,32 @@ private final class TimelineViewModel: ObservableObject {
         errorMessage = nil
     }
 
-    func load(timeline: Timeline, reset: Bool) async {
+    func load(timeline: Timeline, reset: Bool, userHash: String?) async {
         let targetPage = reset ? 1 : min(page + 1, timeline.maxPage)
-        _ = await load(timeline: timeline, targetPage: targetPage, appending: !reset)
+        _ = await load(
+            timeline: timeline,
+            targetPage: targetPage,
+            appending: !reset,
+            userHash: userHash
+        )
     }
 
-    func jump(timeline: Timeline, to targetPage: Int) async -> Bool {
+    func jump(timeline: Timeline, to targetPage: Int, userHash: String?) async -> Bool {
         guard (1...timeline.maxPage).contains(targetPage) else { return false }
-        return await load(timeline: timeline, targetPage: targetPage, appending: false)
+        return await load(
+            timeline: timeline,
+            targetPage: targetPage,
+            appending: false,
+            userHash: userHash
+        )
     }
 
-    private func load(timeline: Timeline, targetPage: Int, appending: Bool) async -> Bool {
+    private func load(
+        timeline: Timeline,
+        targetPage: Int,
+        appending: Bool,
+        userHash: String?
+    ) async -> Bool {
         if isLoading && appending { return false }
         let token = UUID()
         requestToken = token
@@ -49,7 +64,11 @@ private final class TimelineViewModel: ObservableObject {
             if requestToken == token { isLoading = false }
         }
         do {
-            let result = try await APIService.shared.timelineThreads(id: timeline.id, page: targetPage)
+            let result = try await APIService.shared.timelineThreads(
+                id: timeline.id,
+                page: targetPage,
+                userHash: userHash
+            )
             guard requestToken == token, !Task.isCancelled else { return false }
             threads = appending ? threads.appendingUnique(result) : result
             page = targetPage
@@ -70,6 +89,7 @@ struct TimelineScreen: View {
     var isChromeActive = true
 
     @EnvironmentObject private var app: AppModel
+    @EnvironmentObject private var identity: IdentityStore
     @Environment(\.appRuntimeMode) private var runtimeMode
     @StateObject private var model = TimelineViewModel()
     @State private var selectedTimelineID: Int?
@@ -81,6 +101,10 @@ struct TimelineScreen: View {
 
     private var selectedTimeline: Timeline? {
         app.timelines.first { $0.id == selectedTimelineID } ?? app.timelines.first
+    }
+
+    private var loadTaskID: String {
+        "\(selectedTimeline?.id ?? 0)-\(identity.browsingCookieID?.uuidString ?? "anonymous")"
     }
 
     var body: some View {
@@ -122,9 +146,10 @@ struct TimelineScreen: View {
                 }
             }
         }
-        .task(id: selectedTimeline?.id) {
+        .task(id: loadTaskID) {
             guard let timeline = selectedTimeline else { return }
             selectedTimelineID = timeline.id
+            model.prepareForTimelineChange()
             await load(timeline: timeline, reset: true)
         }
         .onAppear { updateChrome() }
@@ -251,14 +276,18 @@ struct TimelineScreen: View {
 
     private func bootstrap() async {
         guard !runtimeMode.isPreview else { return }
-        await app.bootstrap()
+        await app.bootstrap(userHash: identity.browsingUserHash)
     }
 
     private func load(timeline: Timeline, reset: Bool) async {
         if runtimeMode.isPreview {
             model.loadPreview()
         } else {
-            await model.load(timeline: timeline, reset: reset)
+            await model.load(
+                timeline: timeline,
+                reset: reset,
+                userHash: identity.browsingUserHash
+            )
         }
     }
 
@@ -268,7 +297,11 @@ struct TimelineScreen: View {
             model.loadPreview(page: page)
             didLoad = true
         } else {
-            didLoad = await model.jump(timeline: timeline, to: page)
+            didLoad = await model.jump(
+                timeline: timeline,
+                to: page,
+                userHash: identity.browsingUserHash
+            )
         }
         guard didLoad else { return }
         scrollToTopRequest += 1

@@ -93,9 +93,6 @@ struct MainFeedScreen: View {
                 selectedSourceID = "timeline"
             }
         }
-        .onChange(of: selectedSourceID) {
-            showsSourceTabs = true
-        }
     }
 }
 
@@ -172,6 +169,7 @@ private struct MainFeedTabBar: View {
 
 struct BoardDirectoryScreen: View {
     @EnvironmentObject private var app: AppModel
+    @EnvironmentObject private var identity: IdentityStore
     @EnvironmentObject private var preferences: BoardPreferencesStore
     @Environment(\.appRuntimeMode) private var runtimeMode
     @State private var selectedForumID: Int?
@@ -263,7 +261,7 @@ struct BoardDirectoryScreen: View {
 
     private func refresh() async {
         guard !runtimeMode.isPreview else { return }
-        await app.bootstrap()
+        await app.bootstrap(userHash: identity.browsingUserHash)
     }
 }
 

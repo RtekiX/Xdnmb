@@ -3,15 +3,18 @@
 // Author: Maru
 //
 
+import AVFoundation
+import PhotosUI
 import SafariServices
 import SwiftUI
+import UIKit
+import Vision
 
 struct ProfileScreen: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var identity: IdentityStore
     @Environment(\.appRuntimeMode) private var runtimeMode
-    @State private var showingIdentityEditor = false
-    @State private var showingClearConfirmation = false
+    @State private var showingCookieManagement = false
     @State private var showingAccountCenter = false
     @State private var showingPrivacy = false
     @State private var recentThreadID: Int?
@@ -19,6 +22,7 @@ struct ProfileScreen: View {
     @State private var isFindingLastPost = false
 
     private let accountCenterURL = URL(string: "https://www.nmbxd.com/Member/User/Cookie/index.html")
+    private let policiesThreadID = 11_689_471
 
     var body: some View {
         List {
@@ -26,6 +30,7 @@ struct ProfileScreen: View {
             identitySection
             accountSection
             connectionSection
+            policiesSection
             Section {
                 Text("Xdnmb 是非官方客户端。请遵守站点规则，并妥善保管账号、饼干和 Feed ID。")
                     .font(.footnote)
@@ -41,8 +46,8 @@ struct ProfileScreen: View {
                 .accessibilityHint("查看完整隐私声明")
             }
         }
-        .sheet(isPresented: $showingIdentityEditor) {
-            IdentityEditor(identity: identity)
+        .sheet(isPresented: $showingCookieManagement) {
+            CookieManagementScreen(identity: identity)
         }
         .sheet(isPresented: $showingAccountCenter) {
             if let accountCenterURL {
@@ -66,15 +71,6 @@ struct ProfileScreen: View {
         } message: {
             Text(accountMessage ?? "")
         }
-        .confirmationDialog(
-            "移除本地饼干？",
-            isPresented: $showingClearConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("移除", role: .destructive) { identity.clearIdentity() }
-        } message: {
-            Text("移除后将无法发帖与管理订阅，但不会删除服务器上的身份。")
-        }
     }
 
     private var identityStatusSection: some View {
@@ -88,11 +84,9 @@ struct ProfileScreen: View {
                     .frame(width: 48, height: 48)
                     .background(AppTheme.accent.opacity(0.1), in: .rect(cornerRadius: 14))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(identity.hasIdentity ? "匿名身份已就绪" : "尚未导入饼干")
+                    Text(identity.hasIdentity ? "已保存 \(identity.cookies.count) 个饼干" : "尚未导入饼干")
                         .font(.headline)
-                    Text(identity.hasIdentity
-                         ? "可以发帖、回复和管理订阅"
-                         : "浏览无需登录，互动需要饼干")
+                    Text(identity.hasIdentity ? primaryCookieSummary : "请通过相册或相机二维码导入")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -103,8 +97,11 @@ struct ProfileScreen: View {
 
     private var identitySection: some View {
         Section("身份与订阅") {
-            Button { showingIdentityEditor = true } label: {
-                Label(identity.hasIdentity ? "编辑本地身份" : "导入饼干", systemImage: "key")
+            Button { showingCookieManagement = true } label: {
+                Label(
+                    identity.hasIdentity ? "管理饼干（\(identity.cookies.count)/5）" : "二维码导入饼干",
+                    systemImage: "qrcode"
+                )
             }
             LabeledContent("Feed ID") {
                 Text(identity.feedID)
@@ -120,9 +117,6 @@ struct ProfileScreen: View {
                     )
                 }
                 .disabled(isFindingLastPost)
-                Button("移除本地饼干", role: .destructive) {
-                    showingClearConfirmation = true
-                }
             }
         }
     }
@@ -139,7 +133,7 @@ struct ProfileScreen: View {
                 Label("打开账号与饼干中心", systemImage: "person.badge.key")
             }
             .disabled(accountCenterURL == nil)
-            Text("登录、注册、找回密码和申请新饼干由站点安全页面完成；回到 App 后可导入导出的 userhash。")
+            Text("登录、注册、找回密码和申请新饼干由站点安全页面完成；回到 App 后可扫描导出的饼干二维码。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -157,8 +151,18 @@ struct ProfileScreen: View {
         }
     }
 
+    private var policiesSection: some View {
+        Section("关于") {
+            NavigationLink {
+                ThreadDetailScreen(threadID: policiesThreadID)
+            } label: {
+                Label("服务协议与隐私政策", systemImage: "doc.text")
+            }
+        }
+    }
+
     private func findLastPost() async {
-        guard let hash = identity.userHash.nilIfBlank, !isFindingLastPost else { return }
+        guard let hash = identity.postingUserHash, !isFindingLastPost else { return }
         isFindingLastPost = true
         defer { isFindingLastPost = false }
         if runtimeMode.isPreview {
@@ -179,37 +183,57 @@ struct ProfileScreen: View {
             accountMessage = "Preview 正在使用本地示例数据。"
             return
         }
-        await app.bootstrap()
+        await app.bootstrap(userHash: identity.browsingUserHash)
+    }
+
+    private var primaryCookieSummary: String {
+        let browsingName = identity.browsingCookie?.name ?? "未设置"
+        let postingName = identity.postingCookie?.name ?? "未设置"
+        return "浏览：\(browsingName) · 发帖：\(postingName)"
     }
 }
 
-private struct IdentityEditor: View {
+private struct CookieManagementScreen: View {
     @ObservedObject var identity: IdentityStore
     @Environment(\.dismiss) private var dismiss
-    @State private var userHash: String
+    @Environment(\.openURL) private var openURL
     @State private var feedID: String
     @State private var errorMessage: String?
     @State private var showingScanner = false
+    @State private var showingCameraPermissionAlert = false
+    @State private var selectedQRCodePhoto: PhotosPickerItem?
+    @State private var isReadingQRCode = false
+    @State private var cookiePendingDeletion: IdentityCookie?
 
     init(identity: IdentityStore) {
         self.identity = identity
-        _userHash = State(initialValue: identity.userHash)
         _feedID = State(initialValue: identity.feedID)
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("userhash 饼干") {
-                    SecureField("粘贴 userhash", text: $userHash)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    Text("可以粘贴纯 hash，或完整的 userhash=…；保存时会自动清理前缀。")
+                cookieListSection
+                if identity.hasIdentity {
+                    primaryCookieSection
+                }
+                Section("二维码导入") {
+                    PhotosPicker(selection: $selectedQRCodePhoto, matching: .images) {
+                        Label(
+                            isReadingQRCode ? "正在识别二维码…" : "从相册选择二维码",
+                            systemImage: isReadingQRCode ? "hourglass" : "photo.badge.plus"
+                        )
+                    }
+                    .disabled(!identity.canImportCookie || isReadingQRCode)
+
+                    Button { requestCameraAccess() } label: {
+                        Label("使用相机扫描二维码", systemImage: "qrcode.viewfinder")
+                    }
+                    .disabled(!identity.canImportCookie || isReadingQRCode)
+
+                    Text(importHelpText)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                    Button { openScanner() } label: {
-                        Label("扫描二维码导入", systemImage: "qrcode.viewfinder")
-                    }
                 }
                 Section("Feed ID") {
                     TextField("UUID", text: $feedID)
@@ -218,24 +242,22 @@ private struct IdentityEditor: View {
                     Button("生成新的 Feed ID") {
                         feedID = UUID().uuidString.lowercased()
                     }
-                }
-            }
-            .navigationTitle("本地身份")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { save() }
-                        .fontWeight(.semibold)
+                    Button("保存 Feed ID") { saveFeedID() }
                         .disabled(
-                            userHash.nilIfBlank == nil ||
-                            UUID(uuidString: feedID.trimmingCharacters(in: .whitespacesAndNewlines)) == nil
+                            UUID(uuidString: feedID.trimmingCharacters(in: .whitespacesAndNewlines)) == nil ||
+                            feedID.caseInsensitiveCompare(identity.feedID) == .orderedSame
                         )
                 }
             }
-            .alert("无法保存", isPresented: Binding(
+            .navigationTitle("饼干管理")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .task(id: selectedQRCodePhoto) { await importSelectedPhoto() }
+            .alert("操作失败", isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
             )) {
@@ -243,10 +265,37 @@ private struct IdentityEditor: View {
             } message: {
                 Text(errorMessage ?? "")
             }
-            .sheet(isPresented: $showingScanner) {
+            .alert("无法使用相机", isPresented: $showingCameraPermissionAlert) {
+                Button("打开设置") {
+                    if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(settingsURL)
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("请在系统设置中允许 Xdnmb 使用相机。相机只在扫描饼干二维码时开启。")
+            }
+            .confirmationDialog(
+                "移除这个饼干？",
+                isPresented: Binding(
+                    get: { cookiePendingDeletion != nil },
+                    set: { if !$0 { cookiePendingDeletion = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let cookie = cookiePendingDeletion {
+                    Button("移除 \(cookie.name)", role: .destructive) {
+                        removeCookie(cookie)
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("只会从本机钥匙串移除，不会删除服务器上的身份。")
+            }
+            .fullScreenCover(isPresented: $showingScanner) {
                 NavigationStack {
                     QRCodeScannerView { value in
-                        importScannedValue(value)
+                        importQRCode(value)
                     }
                     .ignoresSafeArea()
                     .navigationTitle("扫描饼干二维码")
@@ -270,31 +319,221 @@ private struct IdentityEditor: View {
         }
     }
 
-    private func openScanner() {
+    private var cookieListSection: some View {
+        Section("已保存的饼干（\(identity.cookies.count)/\(IdentityStore.maximumCookieCount)）") {
+            if identity.cookies.isEmpty {
+                ContentUnavailableView(
+                    "还没有饼干",
+                    systemImage: "key.slash",
+                    description: Text("请从相册选择二维码，或使用相机扫描。")
+                )
+            } else {
+                ForEach(identity.cookies) { cookie in
+                    HStack(spacing: 12) {
+                        Image(systemName: "key.fill")
+                            .foregroundStyle(AppTheme.accent)
+                            .frame(width: 30, height: 30)
+                            .background(AppTheme.accent.opacity(0.1), in: .circle)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(cookie.name).font(.headline)
+                            Text(cookie.maskedUserHash)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 3) {
+                            if identity.browsingCookieID == cookie.id {
+                                Text("浏览主饼干")
+                                    .foregroundStyle(AppTheme.accent)
+                            }
+                            if identity.postingCookieID == cookie.id {
+                                Text("发帖主饼干")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .font(.caption)
+                    }
+                    .swipeActions {
+                        Button("移除", role: .destructive) {
+                            cookiePendingDeletion = cookie
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var primaryCookieSection: some View {
+        Section("主饼干") {
+            Picker("浏览鉴权", selection: browsingCookieSelection) {
+                ForEach(identity.cookies) { cookie in
+                    Text(cookie.name).tag(Optional(cookie.id))
+                }
+            }
+            Picker("发帖与回复", selection: postingCookieSelection) {
+                ForEach(identity.cookies) { cookie in
+                    Text(cookie.name).tag(Optional(cookie.id))
+                }
+            }
+            Text("浏览主饼干用于读取时间线、版块、帖子和订阅；发帖主饼干是发帖与回复页面的默认选择。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var browsingCookieSelection: Binding<UUID?> {
+        Binding(
+            get: { identity.browsingCookieID },
+            set: { id in
+                guard let id else { return }
+                do {
+                    try identity.setBrowsingCookie(id: id)
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        )
+    }
+
+    private var postingCookieSelection: Binding<UUID?> {
+        Binding(
+            get: { identity.postingCookieID },
+            set: { id in
+                guard let id else { return }
+                do {
+                    try identity.setPostingCookie(id: id)
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        )
+    }
+
+    private var importHelpText: String {
+        if identity.canImportCookie {
+            return "仅支持二维码导入。相册使用系统照片选择器，不会授予 App 整个相册的访问权限；相机权限只会在点击扫描时申请。"
+        }
+        return "已达到 5 个饼干上限，请先移除一个再导入。"
+    }
+
+    private func requestCameraAccess() {
+        guard identity.canImportCookie else {
+            errorMessage = IdentityStoreError.cookieLimitReached.localizedDescription
+            return
+        }
+
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            presentScanner()
+        case .notDetermined:
+            Task {
+                let granted = await AVCaptureDevice.requestAccess(for: .video)
+                if granted {
+                    presentScanner()
+                } else {
+                    showingCameraPermissionAlert = true
+                }
+            }
+        case .denied, .restricted:
+            showingCameraPermissionAlert = true
+        @unknown default:
+            showingCameraPermissionAlert = true
+        }
+    }
+
+    private func presentScanner() {
         guard QRCodeScannerView.isAvailable else {
-            errorMessage = "当前设备无法使用二维码扫描，请手动粘贴 userhash。"
+            errorMessage = "当前设备无法使用相机扫描，请改从相册选择二维码。"
             return
         }
         showingScanner = true
     }
 
-    private func importScannedValue(_ value: String) {
+    private func importSelectedPhoto() async {
+        guard let selectedQRCodePhoto else { return }
+        isReadingQRCode = true
+        defer {
+            isReadingQRCode = false
+            self.selectedQRCodePhoto = nil
+        }
+
         do {
-            userHash = try IdentityStore.normalizeUserHash(value)
-            showingScanner = false
+            guard identity.canImportCookie else { throw IdentityStoreError.cookieLimitReached }
+            guard let data = try await selectedQRCodePhoto.loadTransferable(type: Data.self) else {
+                throw QRCodeImportError.unreadableImage
+            }
+            let value = try await QRCodeImageReader.payload(from: data)
+            _ = try identity.importCookie(fromQRCode: value)
+        } catch is CancellationError {
+            return
         } catch {
-            errorMessage = "二维码中没有有效的 userhash。"
-            showingScanner = false
+            errorMessage = cookieImportErrorMessage(error)
         }
     }
 
-    private func save() {
+    private func importQRCode(_ value: String) {
         do {
-            try identity.save(userHash: userHash, feedID: feedID)
-            dismiss()
+            _ = try identity.importCookie(fromQRCode: value)
+            showingScanner = false
+        } catch {
+            showingScanner = false
+            errorMessage = cookieImportErrorMessage(error)
+        }
+    }
+
+    private func removeCookie(_ cookie: IdentityCookie) {
+        do {
+            try identity.removeCookie(id: cookie.id)
+            cookiePendingDeletion = nil
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func saveFeedID() {
+        do {
+            try identity.saveFeedID(feedID)
+            feedID = identity.feedID
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func cookieImportErrorMessage(_ error: Error) -> String {
+        if let identityError = error as? IdentityStoreError,
+           case .invalidUserHash = identityError {
+            return "二维码中没有有效的 userhash"
+        }
+        return error.localizedDescription
+    }
+}
+
+private enum QRCodeImportError: LocalizedError {
+    case unreadableImage
+    case missingQRCode
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadableImage:
+            return "无法读取所选图片，请重新选择"
+        case .missingQRCode:
+            return "所选图片中没有可识别的二维码"
+        }
+    }
+}
+
+private enum QRCodeImageReader {
+    static func payload(from data: Data) async throws -> String {
+        try await Task.detached(priority: .userInitiated) {
+            let request = VNDetectBarcodesRequest()
+            request.symbologies = [.qr]
+            let handler = VNImageRequestHandler(data: data)
+            try handler.perform([request])
+            guard let value = request.results?.lazy.compactMap(\.payloadStringValue).first?.nilIfBlank else {
+                throw QRCodeImportError.missingQRCode
+            }
+            return value
+        }.value
     }
 }
 
@@ -302,11 +541,11 @@ private struct PrivacyStatementSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private let statements = [
-        ("eye.slash", "前台匿名", "浏览无需登录；发帖和回复时只向站点发送 userhash，帖子前台不会展示实名账号。"),
-        ("lock.iphone", "本地凭据", "userhash 保存在本机钥匙串，不通过 iCloud 同步；移除后 App 无法恢复。"),
+        ("eye.slash", "前台匿名", "可选择浏览主饼干用于鉴权；发帖和回复只发送当次选定的 userhash，帖子前台不会展示实名账号。"),
+        ("lock.iphone", "本地凭据", "最多 5 个 userhash 及主饼干设置保存在本机钥匙串，不通过 iCloud 同步；移除后 App 无法恢复。"),
         ("bookmark", "订阅标识", "Feed ID 保存在本机偏好设置，并用于读取和管理站点订阅。"),
-        ("camera.viewfinder", "相机", "相机仅在扫描饼干二维码时启用，画面不会被保存或上传。"),
-        ("photo", "照片", "只有在你选择上传或保存图片时，App 才会访问对应图片数据。"),
+        ("camera.viewfinder", "相机", "相机权限只在你点击扫描饼干二维码时申请；画面不会被保存或上传。"),
+        ("photo", "照片", "饼干导入使用系统照片选择器，只读取你选中的二维码图片；发帖和保存图片同样只处理你主动选择的内容。"),
         ("network", "网络请求", "论坛内容、发帖、回复和订阅操作会与 X 岛 API 及图片服务器通信。")
     ]
 
