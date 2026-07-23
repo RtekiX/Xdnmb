@@ -20,17 +20,19 @@ final class AppModel: ObservableObject {
     @Published private(set) var forumError: String?
     @Published private(set) var timelineError: String?
     @Published var subscribedThreadIDs: Set<Int> = []
-    @Published var feedScrollThreadID: Int?
     @Published private(set) var threadReadingPositions: [Int: ThreadReadingPosition] = [:]
 
+    private let apiClient: any XdnmbAPIClient
     private var bootstrapToken = UUID()
 
     init(
+        apiClient: any XdnmbAPIClient = APIService.shared,
         forumGroups: [ForumCategory] = [],
         timelines: [Timeline] = [],
         notice: SiteNotice? = nil,
         subscribedThreadIDs: Set<Int> = []
     ) {
+        self.apiClient = apiClient
         self.forumGroups = forumGroups
         self.timelines = timelines
         self.notice = notice
@@ -49,10 +51,10 @@ final class AppModel: ObservableObject {
             if bootstrapToken == token { isBootstrapping = false }
         }
 
-        await APIService.shared.bootstrap()
-        async let groupRequest = APIService.shared.forumGroups(userHash: userHash)
-        async let timelineRequest = APIService.shared.timelines(userHash: userHash)
-        async let noticeRequest = try? APIService.shared.notice()
+        await apiClient.bootstrap()
+        async let groupRequest = apiClient.forumGroups(userHash: userHash)
+        async let timelineRequest = apiClient.timelines(userHash: userHash)
+        async let noticeRequest = try? apiClient.notice()
 
         var loadedGroups: [ForumCategory]?
         var loadedTimelines: [Timeline]?
@@ -87,6 +89,10 @@ final class AppModel: ObservableObject {
 
     func replaceSubscriptions(with ids: some Sequence<Int>) {
         subscribedThreadIDs = Set(ids.filter { $0 > 0 })
+    }
+
+    func lastPost(userHash: String) async throws -> LastPost {
+        try await apiClient.lastPost(userHash: userHash)
     }
 
     func threadReadingPosition(for threadID: Int) -> ThreadReadingPosition? {

@@ -9,13 +9,22 @@ struct XdnmbAppView: View {
     @StateObject private var appModel: AppModel
     @StateObject private var identityStore: IdentityStore
     @StateObject private var boardPreferences: BoardPreferencesStore
+    @StateObject private var sessionStore: AppSessionStore
     private let runtimeMode: AppRuntimeMode
 
-    init(runtimeMode: AppRuntimeMode = .live) {
+    init(
+        runtimeMode: AppRuntimeMode = .live,
+        apiClient: any XdnmbAPIClient = APIService.shared
+    ) {
         self.runtimeMode = runtimeMode
+        _sessionStore = StateObject(wrappedValue: AppSessionStore(
+            apiClient: apiClient,
+            runtimeMode: runtimeMode
+        ))
         _boardPreferences = StateObject(wrappedValue: BoardPreferencesStore(preview: runtimeMode.isPreview))
         if runtimeMode.isPreview {
             _appModel = StateObject(wrappedValue: AppModel(
+                apiClient: apiClient,
                 forumGroups: PreviewFixtures.forumGroups,
                 timelines: PreviewFixtures.timelines,
                 notice: PreviewFixtures.notice,
@@ -26,7 +35,7 @@ struct XdnmbAppView: View {
                 feedID: PreviewFixtures.feedID
             ))
         } else {
-            _appModel = StateObject(wrappedValue: AppModel())
+            _appModel = StateObject(wrappedValue: AppModel(apiClient: apiClient))
             _identityStore = StateObject(wrappedValue: IdentityStore())
         }
     }
@@ -49,6 +58,7 @@ struct XdnmbAppView: View {
         .environmentObject(appModel)
         .environmentObject(identityStore)
         .environmentObject(boardPreferences)
+        .environmentObject(sessionStore)
         .environment(\.appRuntimeMode, runtimeMode)
         .task(id: identityStore.browsingCookieID) {
             guard !runtimeMode.isPreview else { return }

@@ -3,118 +3,29 @@
 // Author: Maru
 //
 
-import Combine
 import SwiftUI
 
-@MainActor
-private final class FeedViewModel: ObservableObject {
-    static let maximumPage = 1_000
+struct FeedScreen: View {
+    @EnvironmentObject private var sessions: AppSessionStore
 
-    @Published private(set) var entries: [FeedEntry] = []
-    @Published private(set) var page = 1
-    @Published private(set) var isLoading = true
-    @Published private(set) var errorMessage: String?
-    @Published private(set) var canLoadMore = false
-
-    private var requestToken = UUID()
-    private var loadedRequestIdentity: String?
-
-    func loadPreview(page: Int = 1, appending: Bool = false) {
-        let previewEntries = page == 1 ? PreviewFixtures.feedEntries : []
-        entries = appending ? entries.appendingUnique(previewEntries) : previewEntries
-        self.page = page
-        isLoading = false
-        errorMessage = nil
-        canLoadMore = false
-    }
-
-    func load(feedID: String, reset: Bool, userHash: String?) async {
-        loadedRequestIdentity = requestIdentity(feedID: feedID, userHash: userHash)
-        let targetPage = reset ? 1 : page + 1
-        _ = await load(
-            feedID: feedID,
-            targetPage: targetPage,
-            appending: !reset,
-            userHash: userHash
-        )
-    }
-
-    func loadIfNeeded(feedID: String, userHash: String?) async {
-        let loadIdentity = requestIdentity(feedID: feedID, userHash: userHash)
-        guard loadedRequestIdentity != loadIdentity else { return }
-        loadedRequestIdentity = loadIdentity
-        _ = await load(
-            feedID: feedID,
-            targetPage: 1,
-            appending: false,
-            userHash: userHash
-        )
-    }
-
-    func jump(feedID: String, to targetPage: Int, userHash: String?) async -> Bool {
-        guard (1...Self.maximumPage).contains(targetPage) else { return false }
-        return await load(
-            feedID: feedID,
-            targetPage: targetPage,
-            appending: false,
-            userHash: userHash
-        )
-    }
-
-    private func load(
-        feedID: String,
-        targetPage: Int,
-        appending: Bool,
-        userHash: String?
-    ) async -> Bool {
-        if isLoading && appending { return false }
-        let token = UUID()
-        requestToken = token
-        isLoading = true
-        defer {
-            if requestToken == token { isLoading = false }
-        }
-
-        do {
-            let result = try await APIService.shared.feed(
-                id: feedID,
-                page: targetPage,
-                userHash: userHash
-            )
-            guard requestToken == token, !Task.isCancelled else { return false }
-            entries = appending ? entries.appendingUnique(result) : result
-            page = targetPage
-            canLoadMore = result.count >= 20
-            errorMessage = nil
-            return true
-        } catch is CancellationError {
-            return false
-        } catch {
-            guard requestToken == token else { return false }
-            errorMessage = error.localizedDescription
-            canLoadMore = false
-            return false
-        }
-    }
-
-    private func requestIdentity(feedID: String, userHash: String?) -> String {
-        "\(feedID)-\(userHash ?? "anonymous")"
+    var body: some View {
+        FeedScreenContent(model: sessions.feedStore())
     }
 }
 
-struct FeedScreen: View {
+private struct FeedScreenContent: View {
+    @ObservedObject var model: ThreadListStore
+
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var identity: IdentityStore
-    @Environment(\.appRuntimeMode) private var runtimeMode
-    @StateObject private var model = FeedViewModel()
     @State private var showingPageJump = false
     @State private var scrollToTopRequest = 0
 
     var body: some View {
         Group {
-            if model.entries.isEmpty && model.isLoading {
+            if model.threads.isEmpty && model.isInitialLoading {
                 LoadingView(title: "正在加载订阅")
-            } else if model.entries.isEmpty {
+            } else if model.threads.isEmpty {
                 ContentUnavailableView {
                     Label(
                         emptyStateTitle,
@@ -130,46 +41,45 @@ struct FeedScreen: View {
                 }
             } else {
                 RefreshableInfiniteList(
-                    items: model.entries,
+                    items: model.threads,
                     isLoadingMore: model.isLoading,
                     canLoadMore: model.canLoadMore,
                     scrollToTopRequest: scrollToTopRequest,
-                    scrollPosition: Binding(
-                        get: { app.feedScrollThreadID },
-                        set: {
-                            guard app.feedScrollThreadID != $0 else { return }
-                            app.feedScrollThreadID = $0
-                        }
-                    ),
-                    onRefresh: { await load(reset: true) },
-                    onLoadMore: { await load(reset: false) },
+                    onRefresh: { await refresh() },
+                    onLoadMore: { await loadMore() },
                     header: { EmptyView() },
-                    row: { entry in
-                        NavigationLink(value: entry.id) {
-                            ThreadCard(thread: ForumThread(feedEntry: entry))
+                    row: { thread in
+                        NavigationLink {
+                            ThreadDetailScreen(threadID: thread.id)
+                        } label: {
+                            ThreadCard(thread: thread)
                         }
                         .buttonStyle(.plain)
                     },
                     footer: { feedFooter }
                 )
                 .background(AppTheme.groupedBackground)
-                .navigationDestination(for: Int.self) { ThreadDetailScreen(threadID: $0) }
             }
         }
         .navigationTitle("订阅")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("第 \(model.page) 页") { showingPageJump = true }
-                .disabled(model.isLoading && model.entries.isEmpty)
+                .disabled(model.isLoading && model.threads.isEmpty)
             }
         }
         .task(id: "\(identity.feedID)-\(identity.browsingCookieID?.uuidString ?? "anonymous")") {
-            await loadIfNeeded()
+            await model.activate(
+                source: .feed(id: identity.feedID),
+                userHash: identity.browsingUserHash
+            )
+            updateSubscriptions()
         }
         .sheet(isPresented: $showingPageJump) {
             PageJumpSheet(
                 currentPage: model.page,
-                maximumPage: FeedViewModel.maximumPage,
+                maximumPage: 1_000,
                 helpText: "Feed 接口不提供总页数；若目标页没有内容，可以返回第 1 页。"
             ) { page in
                 Task { await jump(to: page) }
@@ -198,7 +108,10 @@ struct FeedScreen: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                 Button("重试加载下一页") {
-                    Task { await load(reset: false) }
+                    Task {
+                        await model.retry()
+                        updateSubscriptions()
+                    }
                 }
                 .buttonStyle(.bordered)
             }
@@ -211,51 +124,25 @@ struct FeedScreen: View {
         }
     }
 
-    private func load(reset: Bool) async {
-        if runtimeMode.isPreview {
-            model.loadPreview(page: reset ? 1 : model.page + 1, appending: !reset)
-        } else {
-            await model.load(
-                feedID: identity.feedID,
-                reset: reset,
-                userHash: identity.browsingUserHash
-            )
-        }
-        if model.errorMessage == nil {
-            app.replaceSubscriptions(with: model.entries.map(\.id))
-        }
+    private func refresh() async {
+        await model.refresh()
+        updateSubscriptions()
     }
 
-    private func loadIfNeeded() async {
-        if runtimeMode.isPreview {
-            guard model.entries.isEmpty else { return }
-            model.loadPreview()
-        } else {
-            await model.loadIfNeeded(
-                feedID: identity.feedID,
-                userHash: identity.browsingUserHash
-            )
-        }
-        if model.errorMessage == nil {
-            app.replaceSubscriptions(with: model.entries.map(\.id))
-        }
+    private func loadMore() async {
+        await model.loadMore()
+        updateSubscriptions()
     }
 
     private func jump(to page: Int) async {
-        let didLoad: Bool
-        if runtimeMode.isPreview {
-            model.loadPreview(page: page)
-            didLoad = true
-        } else {
-            didLoad = await model.jump(
-                feedID: identity.feedID,
-                to: page,
-                userHash: identity.browsingUserHash
-            )
-        }
+        let didLoad = await model.jump(to: page)
         guard didLoad else { return }
-        app.replaceSubscriptions(with: model.entries.map(\.id))
-        app.feedScrollThreadID = model.entries.first?.id
+        updateSubscriptions()
         scrollToTopRequest += 1
+    }
+
+    private func updateSubscriptions() {
+        guard model.errorMessage == nil else { return }
+        app.replaceSubscriptions(with: model.threads.map(\.id))
     }
 }

@@ -38,6 +38,7 @@ struct ProfileScreen: View {
             }
         }
         .navigationTitle("我的")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showingPrivacy = true } label: {
@@ -170,7 +171,7 @@ struct ProfileScreen: View {
             return
         }
         do {
-            recentThreadID = try await APIService.shared.lastPost(userHash: hash).threadID
+            recentThreadID = try await app.lastPost(userHash: hash).threadID
         } catch is CancellationError {
             return
         } catch {

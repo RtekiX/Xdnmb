@@ -5,11 +5,6 @@
 
 import SwiftUI
 
-private struct InfiniteListTrigger<ID: Hashable>: Hashable {
-    let lastID: ID?
-    let canLoadMore: Bool
-}
-
 private struct ScrollNavigationVisibilityTracker {
     private enum Direction {
         case towardTop
@@ -76,7 +71,6 @@ where Items: RandomAccessCollection,
     let isLoadingMore: Bool
     let canLoadMore: Bool
     let scrollToTopRequest: Int
-    let scrollPosition: Binding<Items.Element.ID?>
     let onRefresh: () async -> Void
     let onLoadMore: () async -> Void
     @ViewBuilder let header: () -> Header
@@ -99,27 +93,22 @@ where Items: RandomAccessCollection,
                     header()
                     ForEach(items) { item in
                         row(item)
-                            .task(id: InfiniteListTrigger(
-                                lastID: items.last?.id,
-                                canLoadMore: canLoadMore
-                            )) {
-                                guard item.id == items.last?.id,
-                                      canLoadMore,
-                                      !isLoadingMore else { return }
-                                await onLoadMore()
-                            }
                     }
-                    if isLoadingMore && !isRefreshing {
-                        ProgressView("正在加载更多…")
+                    if canLoadMore {
+                        InfiniteListLoadMoreTrigger(
+                            triggerID: items.last?.id,
+                            isLoading: isLoadingMore,
+                            onLoadMore: onLoadMore
+                        )
+                    } else if isLoadingMore && !isRefreshing {
+                        ProgressView("正在加载…")
                             .padding(.vertical, 12)
                     } else {
                         footer()
                     }
                 }
-                .scrollTargetLayout()
                 .padding(16)
             }
-            .scrollPosition(id: scrollPosition, anchor: .top)
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 max(geometry.contentOffset.y + geometry.contentInsets.top, 0)
             } action: { _, newOffset in
@@ -137,5 +126,20 @@ where Items: RandomAccessCollection,
                 withAnimation { proxy.scrollTo(topAnchor, anchor: .top) }
             }
         }
+    }
+}
+
+private struct InfiniteListLoadMoreTrigger<ID: Hashable>: View {
+    let triggerID: ID?
+    let isLoading: Bool
+    let onLoadMore: () async -> Void
+
+    var body: some View {
+        ProgressView(isLoading ? "正在加载更多…" : "继续加载")
+            .padding(.vertical, 12)
+            .task(id: triggerID) {
+                guard !isLoading else { return }
+                await onLoadMore()
+            }
     }
 }

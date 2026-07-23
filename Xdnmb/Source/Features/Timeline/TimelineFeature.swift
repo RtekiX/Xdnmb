@@ -3,95 +3,31 @@
 // Author: Maru
 //
 
-import Combine
 import SwiftUI
 
-@MainActor
-private final class TimelineViewModel: ObservableObject {
-    @Published private(set) var threads: [ForumThread] = []
-    @Published private(set) var page = 1
-    @Published private(set) var isLoading = true
-    @Published private(set) var errorMessage: String?
+struct TimelineScreen: View {
+    var chrome: MainFeedChromeModel? = nil
+    var isChromeActive = true
 
-    private var requestToken = UUID()
+    @EnvironmentObject private var sessions: AppSessionStore
 
-    func prepareForTimelineChange() {
-        requestToken = UUID()
-        threads = []
-        page = 1
-        isLoading = true
-        errorMessage = nil
-    }
-
-    func loadPreview(page: Int = 1) {
-        threads = PreviewFixtures.threads
-        self.page = page
-        isLoading = false
-        errorMessage = nil
-    }
-
-    func load(timeline: Timeline, reset: Bool, userHash: String?) async {
-        let targetPage = reset ? 1 : min(page + 1, timeline.maxPage)
-        _ = await load(
-            timeline: timeline,
-            targetPage: targetPage,
-            appending: !reset,
-            userHash: userHash
+    var body: some View {
+        TimelineScreenContent(
+            model: sessions.timelineStore(),
+            chrome: chrome,
+            isChromeActive: isChromeActive
         )
-    }
-
-    func jump(timeline: Timeline, to targetPage: Int, userHash: String?) async -> Bool {
-        guard (1...timeline.maxPage).contains(targetPage) else { return false }
-        return await load(
-            timeline: timeline,
-            targetPage: targetPage,
-            appending: false,
-            userHash: userHash
-        )
-    }
-
-    private func load(
-        timeline: Timeline,
-        targetPage: Int,
-        appending: Bool,
-        userHash: String?
-    ) async -> Bool {
-        if isLoading && appending { return false }
-        let token = UUID()
-        requestToken = token
-        isLoading = true
-        defer {
-            if requestToken == token { isLoading = false }
-        }
-        do {
-            let result = try await APIService.shared.timelineThreads(
-                id: timeline.id,
-                page: targetPage,
-                userHash: userHash
-            )
-            guard requestToken == token, !Task.isCancelled else { return false }
-            threads = appending ? threads.appendingUnique(result) : result
-            page = targetPage
-            errorMessage = nil
-            return true
-        } catch is CancellationError {
-            return false
-        } catch {
-            guard requestToken == token else { return false }
-            errorMessage = error.localizedDescription
-            return false
-        }
     }
 }
 
-struct TimelineScreen: View {
+private struct TimelineScreenContent: View {
+    @ObservedObject var model: ThreadListStore
     var chrome: MainFeedChromeModel? = nil
     var isChromeActive = true
 
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var identity: IdentityStore
     @Environment(\.appRuntimeMode) private var runtimeMode
-    @StateObject private var model = TimelineViewModel()
     @State private var selectedTimelineID: Int?
     @State private var showingThreadJump = false
     @State private var showingPageJump = false
@@ -113,7 +49,7 @@ struct TimelineScreen: View {
                 LoadingView(title: "正在连接 X 岛")
             } else if app.timelines.isEmpty, let error = app.timelineError {
                 RetryView(title: "暂时无法连接", message: error) { await bootstrap() }
-            } else if model.threads.isEmpty && model.isLoading {
+            } else if model.threads.isEmpty && model.isInitialLoading {
                 LoadingView(title: "正在加载时间线")
             } else if model.threads.isEmpty {
                 RetryView(
@@ -122,14 +58,14 @@ struct TimelineScreen: View {
                         : "加载失败",
                     message: model.errorMessage ?? "稍后再来看看新的讨论"
                 ) {
-                    guard let timeline = selectedTimeline else { return }
-                    await load(timeline: timeline, reset: true)
+                    await model.refresh()
                 }
             } else {
                 threadList
             }
         }
         .navigationTitle(selectedTimeline?.displayName ?? "X 岛")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if chrome == nil {
                 ToolbarItem(placement: .topBarLeading) {
@@ -149,8 +85,10 @@ struct TimelineScreen: View {
         .task(id: loadTaskID) {
             guard let timeline = selectedTimeline else { return }
             selectedTimelineID = timeline.id
-            model.prepareForTimelineChange()
-            await load(timeline: timeline, reset: true)
+            await model.activate(
+                source: .timeline(id: timeline.id, maximumPage: timeline.maxPage),
+                userHash: identity.browsingUserHash
+            )
         }
         .onAppear { updateChrome() }
         .onChange(of: isChromeActive) { updateChrome() }
@@ -198,17 +136,10 @@ struct TimelineScreen: View {
         RefreshableInfiniteList(
             items: model.threads,
             isLoadingMore: model.isLoading,
-            canLoadMore: !runtimeMode.isPreview && (selectedTimeline.map { model.page < $0.maxPage } ?? false),
+            canLoadMore: model.canLoadMore,
             scrollToTopRequest: scrollToTopRequest,
-            scrollPosition: .constant(nil),
-            onRefresh: {
-                guard let timeline = selectedTimeline else { return }
-                await load(timeline: timeline, reset: true)
-            },
-            onLoadMore: {
-                guard let timeline = selectedTimeline else { return }
-                await load(timeline: timeline, reset: false)
-            },
+            onRefresh: { await model.refresh() },
+            onLoadMore: { await model.loadMore() },
             header: {
                 if let notice = app.notice, notice.enable, notice.content.nilIfBlank != nil {
                     NavigationLink {
@@ -245,8 +176,12 @@ struct TimelineScreen: View {
                 }
             },
             row: { thread in
-                NavigationLink(value: thread.id) { ThreadCard(thread: thread) }
-                    .buttonStyle(.plain)
+                NavigationLink {
+                    ThreadDetailScreen(threadID: thread.id)
+                } label: {
+                    ThreadCard(thread: thread)
+                }
+                .buttonStyle(.plain)
             },
             footer: {
                 if let errorMessage = model.errorMessage {
@@ -256,8 +191,7 @@ struct TimelineScreen: View {
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                         Button("重试加载下一页") {
-                            guard let timeline = selectedTimeline else { return }
-                            Task { await load(timeline: timeline, reset: false) }
+                            Task { await model.retry() }
                         }
                         .buttonStyle(.bordered)
                     }
@@ -271,7 +205,6 @@ struct TimelineScreen: View {
             }
         )
         .background(AppTheme.groupedBackground)
-        .navigationDestination(for: Int.self) { ThreadDetailScreen(threadID: $0) }
     }
 
     private func bootstrap() async {
@@ -279,30 +212,8 @@ struct TimelineScreen: View {
         await app.bootstrap(userHash: identity.browsingUserHash)
     }
 
-    private func load(timeline: Timeline, reset: Bool) async {
-        if runtimeMode.isPreview {
-            model.loadPreview()
-        } else {
-            await model.load(
-                timeline: timeline,
-                reset: reset,
-                userHash: identity.browsingUserHash
-            )
-        }
-    }
-
     private func jump(timeline: Timeline, to page: Int) async {
-        let didLoad: Bool
-        if runtimeMode.isPreview {
-            model.loadPreview(page: page)
-            didLoad = true
-        } else {
-            didLoad = await model.jump(
-                timeline: timeline,
-                to: page,
-                userHash: identity.browsingUserHash
-            )
-        }
+        let didLoad = await model.jump(to: page)
         guard didLoad else { return }
         scrollToTopRequest += 1
     }
@@ -330,7 +241,6 @@ struct TimelineScreen: View {
 
     private func selectTimeline(_ timeline: Timeline) {
         guard timeline.id != selectedTimeline?.id else { return }
-        model.prepareForTimelineChange()
         selectedTimelineID = timeline.id
         scrollToTopRequest += 1
         updateChrome()

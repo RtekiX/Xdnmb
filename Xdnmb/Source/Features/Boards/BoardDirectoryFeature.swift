@@ -172,6 +172,7 @@ struct BoardDirectoryScreen: View {
     @EnvironmentObject private var identity: IdentityStore
     @EnvironmentObject private var preferences: BoardPreferencesStore
     @Environment(\.appRuntimeMode) private var runtimeMode
+    @StateObject private var chrome = MainFeedChromeModel()
     @State private var selectedForumID: Int?
     @State private var draggedForumID: Int?
 
@@ -220,7 +221,11 @@ struct BoardDirectoryScreen: View {
                         set: { selectedForumID = $0 }
                     )) {
                         ForEach(visibleForums) { forum in
-                            ForumScreen(forum: forum)
+                            ForumScreen(
+                                forum: forum,
+                                chrome: chrome,
+                                isChromeActive: selectedForum?.id == forum.id
+                            )
                                 .tag(forum.id)
                         }
                     }
@@ -238,6 +243,22 @@ struct BoardDirectoryScreen: View {
                     Label("管理版块", systemImage: "slider.horizontal.3")
                 }
                 .disabled(allForums.isEmpty)
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button { chrome.openPagePicker() } label: {
+                    Text("第 \(chrome.page) 页")
+                        .monospacedDigit()
+                        .frame(width: 62)
+                }
+                .disabled(selectedForum == nil || !chrome.pageEnabled)
+                .opacity(selectedForum == nil ? 0 : 1)
+                Button { chrome.performPrimaryAction() } label: {
+                    Image(systemName: chrome.primarySymbol)
+                        .frame(width: 28)
+                }
+                .disabled(selectedForum == nil || !chrome.primaryEnabled)
+                .opacity(selectedForum == nil ? 0 : 1)
+                .accessibilityLabel(chrome.primaryTitle)
             }
         }
         .task(id: allForums.map(\.id)) {

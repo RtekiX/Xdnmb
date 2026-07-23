@@ -24,27 +24,44 @@ struct ComposerScreen: View {
     @ObservedObject var identity: IdentityStore
     let onSuccess: () async -> Void
 
+    @EnvironmentObject private var sessions: AppSessionStore
+
+    var body: some View {
+        ComposerScreenContent(
+            mode: mode,
+            identity: identity,
+            model: sessions.makeComposerStore(),
+            onSuccess: onSuccess
+        )
+    }
+}
+
+private struct ComposerScreenContent: View {
+    let mode: ComposerMode
+    @ObservedObject var identity: IdentityStore
+    let onSuccess: () async -> Void
+
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.appRuntimeMode) private var runtimeMode
+    @StateObject private var model: ComposerStore
     @State private var content = ""
     @State private var title = ""
     @State private var name = ""
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var attachment: ImageAttachment?
     @State private var isPreparingImage = false
-    @State private var isSending = false
-    @State private var errorMessage: String?
     @State private var selectedCookieID: UUID?
     @FocusState private var editorFocused: Bool
 
     init(
         mode: ComposerMode,
         identity: IdentityStore,
+        model: ComposerStore,
         onSuccess: @escaping () async -> Void
     ) {
         self.mode = mode
         self.identity = identity
         self.onSuccess = onSuccess
+        _model = StateObject(wrappedValue: model)
         _selectedCookieID = State(initialValue: identity.postingCookieID)
     }
 
@@ -104,7 +121,7 @@ struct ComposerScreen: View {
                             )
                         }
                     }
-                    .disabled(isPreparingImage || isSending)
+                    .disabled(isPreparingImage || model.isSending)
                     if attachment != nil {
                         Button("移除图片", role: .destructive) {
                             selectedPhoto = nil
@@ -123,7 +140,7 @@ struct ComposerScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }.disabled(isSending)
+                    Button("取消") { dismiss() }.disabled(model.isSending)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("发送") { Task { await send() } }
@@ -132,11 +149,11 @@ struct ComposerScreen: View {
                             content.nilIfBlank == nil ||
                             identity.cookie(id: selectedCookieID) == nil ||
                             isPreparingImage ||
-                            isSending
+                            model.isSending
                         )
                 }
             }
-            .overlay { if isSending { SendingOverlay() } }
+            .overlay { if model.isSending { SendingOverlay() } }
             .task(id: selectedPhoto) { await prepareSelectedPhoto() }
             .onChange(of: identity.cookies.map(\.id)) {
                 if identity.cookie(id: selectedCookieID) == nil {
@@ -144,14 +161,14 @@ struct ComposerScreen: View {
                 }
             }
             .onAppear { editorFocused = true }
-            .interactiveDismissDisabled(isSending)
+            .interactiveDismissDisabled(model.isSending)
             .alert("操作失败", isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
+                get: { model.errorMessage != nil },
+                set: { if !$0 { model.clearError() } }
             )) {
                 Button("好", role: .cancel) {}
             } message: {
-                Text(errorMessage ?? "")
+                Text(model.errorMessage ?? "")
             }
         }
     }
@@ -175,7 +192,7 @@ struct ComposerScreen: View {
         } catch {
             attachment = nil
             self.selectedPhoto = nil
-            errorMessage = error.localizedDescription
+            model.present(error: error)
         }
     }
 
@@ -189,50 +206,30 @@ struct ComposerScreen: View {
     }
 
     private func send() async {
-        guard !isSending else { return }
+        guard !model.isSending else { return }
         guard let hash = identity.cookie(id: selectedCookieID)?.userHash else {
-            errorMessage = APIError.missingIdentity.localizedDescription
+            model.present(error: APIError.missingIdentity)
             return
         }
-        isSending = true
-        defer { isSending = false }
-
-        if runtimeMode.isPreview {
-            dismiss()
-            await onSuccess()
-            return
+        let destination: ComposerDestination
+        switch mode {
+        case .thread(let forum): destination = .forum(forum.id)
+        case .reply(let threadID): destination = .thread(threadID)
         }
-
-        do {
-            switch mode {
-            case .thread(let forum):
-                try await APIService.shared.createThread(
-                    forumID: forum.id,
-                    content: content,
-                    title: title,
-                    name: name,
-                    imageData: attachment?.data,
-                    imageExtension: attachment?.fileExtension,
-                    userHash: hash
-                )
-            case .reply(let threadID):
-                try await APIService.shared.reply(
-                    threadID: threadID,
-                    content: content,
-                    title: title,
-                    name: name,
-                    imageData: attachment?.data,
-                    imageExtension: attachment?.fileExtension,
-                    userHash: hash
-                )
-            }
-            dismiss()
-            await onSuccess()
-        } catch is CancellationError {
-            return
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        let succeeded = await model.submit(
+            destination: destination,
+            draft: ComposerDraft(
+                content: content,
+                title: title,
+                name: name,
+                imageData: attachment?.data,
+                imageExtension: attachment?.fileExtension
+            ),
+            userHash: hash
+        )
+        guard succeeded else { return }
+        dismiss()
+        await onSuccess()
     }
 }
 

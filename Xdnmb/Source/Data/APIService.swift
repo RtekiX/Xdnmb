@@ -52,7 +52,7 @@ enum APIError: LocalizedError {
     }
 }
 
-actor APIService {
+actor APIService: XdnmbAPIClient {
     static let shared = APIService()
 
     private static let defaultImageBaseURL = URL(string: "https://image.nmb.best/")!

@@ -3,85 +3,44 @@
 // Author: Maru
 //
 
-import Combine
 import SwiftUI
-
-@MainActor
-private final class ForumViewModel: ObservableObject {
-    @Published private(set) var threads: [ForumThread] = []
-    @Published private(set) var page = 1
-    @Published private(set) var isLoading = true
-    @Published private(set) var errorMessage: String?
-
-    private var requestToken = UUID()
-
-    func loadPreview(page: Int = 1) {
-        threads = PreviewFixtures.threads
-        self.page = page
-        isLoading = false
-        errorMessage = nil
-    }
-
-    func load(forum: Forum, reset: Bool, userHash: String?) async {
-        let targetPage = reset ? 1 : min(page + 1, forum.maxPage)
-        _ = await load(forum: forum, targetPage: targetPage, appending: !reset, userHash: userHash)
-    }
-
-    func jump(forum: Forum, to targetPage: Int, userHash: String?) async -> Bool {
-        guard (1...forum.maxPage).contains(targetPage) else { return false }
-        return await load(forum: forum, targetPage: targetPage, appending: false, userHash: userHash)
-    }
-
-    private func load(
-        forum: Forum,
-        targetPage: Int,
-        appending: Bool,
-        userHash: String?
-    ) async -> Bool {
-        if isLoading && appending { return false }
-        let token = UUID()
-        requestToken = token
-        isLoading = true
-        defer {
-            if requestToken == token { isLoading = false }
-        }
-        do {
-            let result = try await APIService.shared.forumThreads(
-                id: forum.id,
-                page: targetPage,
-                userHash: userHash
-            )
-            guard requestToken == token, !Task.isCancelled else { return false }
-            threads = appending ? threads.appendingUnique(result) : result
-            page = targetPage
-            errorMessage = nil
-            return true
-        } catch is CancellationError {
-            return false
-        } catch {
-            guard requestToken == token else { return false }
-            errorMessage = error.localizedDescription
-            return false
-        }
-    }
-}
 
 struct ForumScreen: View {
     let forum: Forum
     var chrome: MainFeedChromeModel? = nil
     var isChromeActive = true
 
+    @EnvironmentObject private var sessions: AppSessionStore
+
+    var body: some View {
+        ForumScreenContent(
+            forum: forum,
+            model: sessions.forumStore(for: forum.id),
+            chrome: chrome,
+            isChromeActive: isChromeActive
+        )
+    }
+}
+
+private struct ForumScreenContent: View {
+    let forum: Forum
+    @ObservedObject var model: ThreadListStore
+    var chrome: MainFeedChromeModel? = nil
+    var isChromeActive = true
+
     @EnvironmentObject private var identity: IdentityStore
-    @Environment(\.appRuntimeMode) private var runtimeMode
-    @StateObject private var model = ForumViewModel()
     @State private var showingComposer = false
     @State private var showingPageJump = false
     @State private var showingNotice = false
     @State private var scrollToTopRequest = 0
 
+    private var loadTaskID: String {
+        "\(forum.id)-\(identity.browsingCookieID?.uuidString ?? "anonymous")"
+    }
+
     var body: some View {
         Group {
-            if model.threads.isEmpty && model.isLoading {
+            if model.threads.isEmpty && model.isInitialLoading {
                 LoadingView(title: "正在加载\(forum.displayName)")
             } else if model.threads.isEmpty {
                 RetryView(
@@ -90,17 +49,16 @@ struct ForumScreen: View {
                         : "加载失败",
                     message: model.errorMessage ?? "成为第一个发起讨论的人吧"
                 ) {
-                    await load(reset: true)
+                    await model.refresh()
                 }
             } else {
                 RefreshableInfiniteList(
                     items: model.threads,
                     isLoadingMore: model.isLoading,
-                    canLoadMore: !runtimeMode.isPreview && model.page < forum.maxPage,
+                    canLoadMore: model.canLoadMore,
                     scrollToTopRequest: scrollToTopRequest,
-                    scrollPosition: .constant(nil),
-                    onRefresh: { await load(reset: true) },
-                    onLoadMore: { await load(reset: false) },
+                    onRefresh: { await model.refresh() },
+                    onLoadMore: { await model.loadMore() },
                     header: {
                         if forum.message.htmlPlainText.nilIfBlank != nil {
                             NavigationLink {
@@ -112,8 +70,12 @@ struct ForumScreen: View {
                         }
                     },
                     row: { thread in
-                        NavigationLink(value: thread.id) { ThreadCard(thread: thread) }
-                            .buttonStyle(.plain)
+                        NavigationLink {
+                            ThreadDetailScreen(threadID: thread.id)
+                        } label: {
+                            ThreadCard(thread: thread)
+                        }
+                        .buttonStyle(.plain)
                     },
                     footer: {
                         if let errorMessage = model.errorMessage {
@@ -123,7 +85,7 @@ struct ForumScreen: View {
                                     .foregroundStyle(.secondary)
                                     .multilineTextAlignment(.center)
                                 Button("重试加载下一页") {
-                                    Task { await load(reset: false) }
+                                    Task { await model.retry() }
                                 }
                                 .buttonStyle(.bordered)
                             }
@@ -141,7 +103,6 @@ struct ForumScreen: View {
         }
         .navigationTitle(forum.displayName)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: Int.self) { ThreadDetailScreen(threadID: $0) }
         .navigationDestination(isPresented: $showingNotice) {
             ForumNoticeScreen(forum: forum)
         }
@@ -156,8 +117,11 @@ struct ForumScreen: View {
                 }
             }
         }
-        .task(id: "\(forum.id)-\(identity.browsingCookieID?.uuidString ?? "anonymous")") {
-            await load(reset: true)
+        .task(id: loadTaskID) {
+            await model.activate(
+                source: .forum(id: forum.id, maximumPage: forum.maxPage),
+                userHash: identity.browsingUserHash
+            )
         }
         .onAppear { updateChrome() }
         .onChange(of: isChromeActive) { updateChrome() }
@@ -165,7 +129,7 @@ struct ForumScreen: View {
         .onChange(of: model.isLoading) { updateChrome() }
         .sheet(isPresented: $showingComposer) {
             ComposerScreen(mode: .thread(forum), identity: identity) {
-                await load(reset: true)
+                await model.refresh()
             }
         }
         .sheet(isPresented: $showingPageJump) {
@@ -175,26 +139,8 @@ struct ForumScreen: View {
         }
     }
 
-    private func load(reset: Bool) async {
-        if runtimeMode.isPreview {
-            model.loadPreview()
-        } else {
-            await model.load(forum: forum, reset: reset, userHash: identity.browsingUserHash)
-        }
-    }
-
     private func jump(to page: Int) async {
-        let didLoad: Bool
-        if runtimeMode.isPreview {
-            model.loadPreview(page: page)
-            didLoad = true
-        } else {
-            didLoad = await model.jump(
-                forum: forum,
-                to: page,
-                userHash: identity.browsingUserHash
-            )
-        }
+        let didLoad = await model.jump(to: page)
         guard didLoad else { return }
         scrollToTopRequest += 1
     }
