@@ -34,16 +34,7 @@ struct HomeNavigationStateTests {
             approximatelyEqual(state.revealProgress, 0),
             "the full travel distance must hide the source rail"
         )
-        try require(
-            !state.hidesBottomBar,
-            "the bottom bar must remain system-controlled while the gesture is active"
-        )
-
         state.settle()
-        try require(
-            state.hidesBottomBar,
-            "a settled compact navigation state must release bottom screen space"
-        )
 
         state.recordScrollOffset(28)
         try require(
@@ -56,11 +47,6 @@ struct HomeNavigationStateTests {
             approximatelyEqual(state.revealProgress, 1),
             "an idle half-revealed rail must settle to a complete state"
         )
-        try require(
-            !state.hidesBottomBar,
-            "restoring the source rail must return the bottom bar to system control"
-        )
-
         state.beginSourceTransition()
         state.recordScrollOffset(240)
         try require(
@@ -101,13 +87,6 @@ struct HomeNavigationStateTests {
         try require(accessory.isVisible, "a different owner must not clear the accessory")
         accessory.clear(ownerID: "thread-1")
         try require(!accessory.isVisible, "the active owner must be able to clear the accessory")
-
-        let appChrome = AppNavigationChromeModel()
-        try require(appChrome.isBottomBarVisible, "the custom dock must start visible")
-        appChrome.setBottomBarVisible(false)
-        try require(!appChrome.isBottomBarVisible, "home scrolling must be able to hide the custom dock")
-        appChrome.showBottomBar()
-        try require(appChrome.isBottomBarVisible, "tab or destination changes must restore the custom dock")
 
         print("Home navigation state tests passed")
     }

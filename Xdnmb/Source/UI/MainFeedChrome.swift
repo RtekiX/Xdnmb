@@ -9,7 +9,6 @@ import SwiftUI
 @MainActor
 final class HomeNavigationState: ObservableObject {
     @Published private(set) var revealProgress: CGFloat = 1
-    @Published private(set) var hidesBottomBar = false
 
     private let travelDistance: CGFloat
     private var lastOffset: CGFloat?
@@ -57,12 +56,10 @@ final class HomeNavigationState: ObservableObject {
 
     func showSources() {
         revealProgress = 1
-        hidesBottomBar = false
     }
 
     func hideSources() {
         revealProgress = 0
-        hidesBottomBar = true
     }
 
     func settle() {
@@ -75,7 +72,6 @@ final class HomeNavigationState: ObservableObject {
 
     func beginSourceTransition() {
         revealProgress = 1
-        hidesBottomBar = false
         lastOffset = nil
     }
 }
@@ -160,18 +156,5 @@ final class AppBottomAccessoryModel: ObservableObject {
 
     func performAction() {
         action()
-    }
-}
-
-@MainActor
-final class AppNavigationChromeModel: ObservableObject {
-    @Published private(set) var isBottomBarVisible = true
-
-    func setBottomBarVisible(_ isVisible: Bool) {
-        isBottomBarVisible = isVisible
-    }
-
-    func showBottomBar() {
-        isBottomBarVisible = true
     }
 }

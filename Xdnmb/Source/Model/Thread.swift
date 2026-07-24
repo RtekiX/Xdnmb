@@ -136,6 +136,12 @@ struct LastPost: Decodable, Hashable, Sendable {
         case id, content
     }
 
+    init(parentThreadID: Int, id: Int, content: String) {
+        self.parentThreadID = parentThreadID
+        self.id = id
+        self.content = content
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         parentThreadID = container.lossyInt(forKey: .parentThreadID)

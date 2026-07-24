@@ -42,6 +42,8 @@
 		B10000000000000000000021 /* ThreadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000029 /* ThreadStore.swift */; };
 		B10000000000000000000022 /* XdnmbAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000002A /* XdnmbAPIClient.swift */; };
 		B10000000000000000000023 /* ComposerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000002B /* ComposerStore.swift */; };
+		B10000000000000000000024 /* PostHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000002C /* PostHistoryStore.swift */; };
+		B10000000000000000000025 /* PostHistoryFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000002D /* PostHistoryFeature.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -82,6 +84,8 @@
 		F10000000000000000000029 /* ThreadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadStore.swift; sourceTree = "<group>"; };
 		F1000000000000000000002A /* XdnmbAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XdnmbAPIClient.swift; sourceTree = "<group>"; };
 		F1000000000000000000002B /* ComposerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerStore.swift; sourceTree = "<group>"; };
+		F1000000000000000000002C /* PostHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHistoryStore.swift; sourceTree = "<group>"; };
+		F1000000000000000000002D /* PostHistoryFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHistoryFeature.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -155,6 +159,7 @@
 				F10000000000000000000005 /* APIService.swift */,
 				F10000000000000000000006 /* IdentityStore.swift */,
 				F10000000000000000000023 /* BoardPreferencesStore.swift */,
+				F1000000000000000000002C /* PostHistoryStore.swift */,
 			);
 			path = Data;
 			sourceTree = "<group>";
@@ -176,6 +181,7 @@
 				A2000000000000000000000D /* Feed */,
 				A2000000000000000000000E /* Thread */,
 				A2000000000000000000000F /* Composer */,
+				A20000000000000000000016 /* History */,
 				A20000000000000000000010 /* Profile */,
 			);
 			path = Features;
@@ -244,6 +250,12 @@
 			isa = PBXGroup;
 			children = (F10000000000000000000011 /* ProfileFeature.swift */);
 			path = Profile;
+			sourceTree = "<group>";
+		};
+		A20000000000000000000016 /* History */ = {
+			isa = PBXGroup;
+			children = (F1000000000000000000002D /* PostHistoryFeature.swift */);
+			path = History;
 			sourceTree = "<group>";
 		};
 		A20000000000000000000011 /* Architecture */ = {
@@ -383,6 +395,8 @@
 				B10000000000000000000021 /* ThreadStore.swift in Sources */,
 				B10000000000000000000022 /* XdnmbAPIClient.swift in Sources */,
 				B10000000000000000000023 /* ComposerStore.swift in Sources */,
+				B10000000000000000000024 /* PostHistoryStore.swift in Sources */,
+				B10000000000000000000025 /* PostHistoryFeature.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

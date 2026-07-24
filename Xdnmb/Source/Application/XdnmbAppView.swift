@@ -9,12 +9,14 @@ struct XdnmbAppView: View {
     private enum AppTab: Hashable, CaseIterable {
         case home
         case subscriptions
+        case history
         case profile
 
         var title: String {
             switch self {
             case .home: "首页"
             case .subscriptions: "订阅"
+            case .history: "历史"
             case .profile: "我的"
             }
         }
@@ -23,6 +25,7 @@ struct XdnmbAppView: View {
             switch self {
             case .home: "house"
             case .subscriptions: "bookmark"
+            case .history: "clock.arrow.circlepath"
             case .profile: "person.crop.circle"
             }
         }
@@ -32,10 +35,9 @@ struct XdnmbAppView: View {
     @StateObject private var identityStore: IdentityStore
     @StateObject private var boardPreferences: BoardPreferencesStore
     @StateObject private var sessionStore: AppSessionStore
+    @StateObject private var postHistory: PostHistoryStore
     @StateObject private var bottomAccessory: AppBottomAccessoryModel
-    @StateObject private var navigationChrome: AppNavigationChromeModel
     @State private var selectedTab = AppTab.home
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let runtimeMode: AppRuntimeMode
 
     init(
@@ -44,12 +46,15 @@ struct XdnmbAppView: View {
     ) {
         self.runtimeMode = runtimeMode
         _bottomAccessory = StateObject(wrappedValue: AppBottomAccessoryModel())
-        _navigationChrome = StateObject(wrappedValue: AppNavigationChromeModel())
         _sessionStore = StateObject(wrappedValue: AppSessionStore(
             apiClient: apiClient,
             runtimeMode: runtimeMode
         ))
         _boardPreferences = StateObject(wrappedValue: BoardPreferencesStore(preview: runtimeMode.isPreview))
+        _postHistory = StateObject(wrappedValue: runtimeMode.isPreview
+            ? PostHistoryStore(previewEntries: PreviewFixtures.postHistory)
+            : PostHistoryStore()
+        )
         if runtimeMode.isPreview {
             _appModel = StateObject(wrappedValue: AppModel(
                 apiClient: apiClient,
@@ -69,64 +74,81 @@ struct XdnmbAppView: View {
     }
 
     private var tabContent: some View {
-        ZStack {
-            tabLayer(.home) {
+        TabView(selection: $selectedTab) {
+            Tab(AppTab.home.title, systemImage: AppTab.home.symbol, value: AppTab.home) {
                 NavigationStack { MainFeedScreen() }
                     .xdnmbNavigationChrome()
+                    .xdnmbTabBarChrome()
             }
 
-            tabLayer(.subscriptions) {
+            Tab(
+                AppTab.subscriptions.title,
+                systemImage: AppTab.subscriptions.symbol,
+                value: AppTab.subscriptions
+            ) {
                 NavigationStack { FeedScreen() }
                     .xdnmbNavigationChrome()
+                    .xdnmbTabBarChrome()
             }
 
-            tabLayer(.profile) {
+            Tab(AppTab.history.title, systemImage: AppTab.history.symbol, value: AppTab.history) {
+                NavigationStack { PostHistoryScreen() }
+                    .xdnmbNavigationChrome()
+                    .xdnmbTabBarChrome()
+            }
+
+            Tab(AppTab.profile.title, systemImage: AppTab.profile.symbol, value: AppTab.profile) {
                 NavigationStack { ProfileScreen() }
                     .xdnmbNavigationChrome()
+                    .xdnmbTabBarChrome()
             }
         }
     }
 
-    private func tabLayer<Content: View>(
-        _ tab: AppTab,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        content()
-            .opacity(selectedTab == tab ? 1 : 0)
-            .allowsHitTesting(selectedTab == tab)
-            .accessibilityHidden(selectedTab != tab)
-            .zIndex(selectedTab == tab ? 1 : 0)
-    }
-
+    @ViewBuilder
     var body: some View {
-        tabContent
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if navigationChrome.isBottomBarVisible || bottomAccessory.isVisible {
-                AppBottomDock(
-                    tabs: AppTab.allCases,
-                    selectedTab: $selectedTab,
-                    bottomAccessory: bottomAccessory,
-                    title: \.title,
-                    symbol: \.symbol
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+        if #available(iOS 26.1, *) {
+            configuredTabContent
+                .tabBarMinimizeBehavior(.onScrollDown)
+                .tabViewBottomAccessory(isEnabled: bottomAccessory.isVisible) {
+                    AppSystemBottomAccessory(model: bottomAccessory)
+                }
+        } else if #available(iOS 26.0, *) {
+            if bottomAccessory.isVisible {
+                configuredTabContent
+                    .tabBarMinimizeBehavior(.onScrollDown)
+                    .tabViewBottomAccessory {
+                        AppSystemBottomAccessory(model: bottomAccessory)
+                    }
+            } else {
+                configuredTabContent
+                    .tabBarMinimizeBehavior(.onScrollDown)
             }
+        } else {
+            configuredTabContent
+                .overlay(alignment: .bottom) {
+                    if bottomAccessory.isVisible {
+                        AppLegacyBottomAccessory(model: bottomAccessory)
+                    }
+                }
         }
-        .animation(
-            reduceMotion ? .easeOut(duration: 0.12) : .snappy(duration: 0.24),
-            value: navigationChrome.isBottomBarVisible || bottomAccessory.isVisible
-        )
+    }
+
+    private var configuredTabContent: some View {
+        ZStack {
+            AppTheme.groupedBackground
+                .ignoresSafeArea()
+
+            tabContent
+        }
         .tint(AppTheme.accent)
         .environmentObject(appModel)
         .environmentObject(identityStore)
         .environmentObject(boardPreferences)
         .environmentObject(sessionStore)
+        .environmentObject(postHistory)
         .environmentObject(bottomAccessory)
-        .environmentObject(navigationChrome)
         .environment(\.appRuntimeMode, runtimeMode)
-        .onChange(of: selectedTab) {
-            navigationChrome.showBottomBar()
-        }
         .task(id: identityStore.browsingCookieID) {
             guard !runtimeMode.isPreview else { return }
             await appModel.bootstrap(userHash: identityStore.browsingUserHash)
@@ -134,79 +156,60 @@ struct XdnmbAppView: View {
     }
 }
 
-private struct AppBottomDock<Tab: Hashable>: View {
-    let tabs: [Tab]
-    @Binding var selectedTab: Tab
-    @ObservedObject var bottomAccessory: AppBottomAccessoryModel
-    let title: KeyPath<Tab, String>
-    let symbol: KeyPath<Tab, String>
+@available(iOS 26.0, *)
+private struct AppSystemBottomAccessory: View {
+    @ObservedObject var model: AppBottomAccessoryModel
+    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
 
     var body: some View {
-        VStack(spacing: 6) {
-            if bottomAccessory.isVisible {
-                dockSurface {
-                    Button {
-                        bottomAccessory.performAction()
-                    } label: {
-                        HStack {
-                            Label(bottomAccessory.title, systemImage: bottomAccessory.symbol)
-                            Spacer()
-                            Image(systemName: "chevron.up")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .padding(.horizontal, 16)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(bottomAccessory.title)
-                }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
-            dockSurface {
+        Button {
+            model.performAction()
+        } label: {
+            if placement == .inline {
+                Image(systemName: model.symbol)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
                 HStack {
-                    ForEach(tabs, id: \.self) { tab in
-                        Button {
-                            selectedTab = tab
-                        } label: {
-                            VStack(spacing: 2) {
-                                Image(systemName: tab[keyPath: symbol])
-                                    .font(.system(size: 17, weight: .semibold))
-                                Text(tab[keyPath: title])
-                                    .font(.caption2.weight(.medium))
-                            }
-                            .foregroundStyle(selectedTab == tab ? AppTheme.accent : .secondary)
-                            .frame(maxWidth: .infinity, minHeight: 46)
-                            .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityValue(selectedTab == tab ? "已选择" : "未选择")
-                    }
+                    Label(model.title, systemImage: model.symbol)
+                    Spacer()
+                    Image(systemName: "chevron.up")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 4)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 4)
-        .padding(.bottom, 4)
+        .buttonStyle(.plain)
+        .accessibilityLabel(model.title)
     }
+}
 
-    @ViewBuilder
-    private func dockSurface<Content: View>(
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        if #available(iOS 26.0, *) {
-            content()
-                .glassEffect(.regular, in: .capsule)
-        } else {
-            content()
-                .background(.ultraThinMaterial, in: .capsule)
-                .overlay {
-                    Capsule()
-                        .stroke(.primary.opacity(0.08), lineWidth: 0.5)
-                }
+private struct AppLegacyBottomAccessory: View {
+    @ObservedObject var model: AppBottomAccessoryModel
+
+    var body: some View {
+        Button {
+            model.performAction()
+        } label: {
+            HStack {
+                Label(model.title, systemImage: model.symbol)
+                Spacer()
+                Image(systemName: "chevron.up")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .padding(.horizontal, 16)
         }
+        .buttonStyle(.plain)
+        .background(.ultraThinMaterial, in: .capsule)
+        .overlay {
+            Capsule()
+                .stroke(.primary.opacity(0.08), lineWidth: 0.5)
+        }
+        .padding(.horizontal, 12)
+        .safeAreaPadding(.bottom, 52)
+        .accessibilityLabel(model.title)
     }
 }
 

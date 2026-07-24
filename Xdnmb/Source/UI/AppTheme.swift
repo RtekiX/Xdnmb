@@ -32,6 +32,16 @@ extension View {
     }
 
     @ViewBuilder
+    func xdnmbTabBarChrome() -> some View {
+        if #available(iOS 26.0, *) {
+            toolbarBackground(.hidden, for: .tabBar)
+        } else {
+            toolbarBackground(.ultraThinMaterial, for: .tabBar)
+                .toolbarBackground(.visible, for: .tabBar)
+        }
+    }
+
+    @ViewBuilder
     func xdnmbNavigationTitle(
         _ title: String,
         isEnabled: Bool

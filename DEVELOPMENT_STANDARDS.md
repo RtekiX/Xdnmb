@@ -78,6 +78,7 @@ xcrun swiftc -module-cache-path /tmp/Xdnmb-Swift-ModuleCache -parse-as-library \
   Xdnmb/Source/Model/Forum.swift \
   Xdnmb/Source/Model/Thread.swift \
   Xdnmb/Source/Data/XdnmbAPIClient.swift \
+  Xdnmb/Source/Data/PostHistoryStore.swift \
   Xdnmb/Source/Application/PreviewSupport.swift \
   Xdnmb/Source/Module/Pagination/ThreadListStore.swift \
   Xdnmb/Source/Module/Thread/ThreadStore.swift \

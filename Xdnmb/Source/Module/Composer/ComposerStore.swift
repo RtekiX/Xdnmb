@@ -11,6 +11,11 @@ enum ComposerDestination: Sendable {
     case thread(Int)
 }
 
+struct ComposerSubmission: Sendable {
+    let destination: ComposerDestination
+    let threadID: Int?
+}
+
 struct ComposerDraft: Sendable {
     let content: String
     let title: String
@@ -36,19 +41,27 @@ final class ComposerStore: ObservableObject {
         destination: ComposerDestination,
         draft: ComposerDraft,
         userHash: String
-    ) async -> Bool {
-        guard !isSending else { return false }
+    ) async -> ComposerSubmission? {
+        guard !isSending else { return nil }
         isSending = true
         defer { isSending = false }
 
         if runtimeMode.isPreview {
             errorMessage = nil
-            return true
+            let threadID: Int?
+            switch destination {
+            case .forum:
+                threadID = PreviewFixtures.threads.first?.id
+            case .thread(let id):
+                threadID = id
+            }
+            return ComposerSubmission(destination: destination, threadID: threadID)
         }
 
         do {
             switch destination {
             case .forum(let forumID):
+                let previousPostID = try? await apiClient.lastPost(userHash: userHash).id
                 try await apiClient.createThread(
                     forumID: forumID,
                     content: draft.content,
@@ -58,6 +71,12 @@ final class ComposerStore: ObservableObject {
                     imageExtension: draft.imageExtension,
                     userHash: userHash
                 )
+                let threadID = await resolveNewThreadID(
+                    userHash: userHash,
+                    previousPostID: previousPostID
+                )
+                errorMessage = nil
+                return ComposerSubmission(destination: destination, threadID: threadID)
             case .thread(let threadID):
                 try await apiClient.reply(
                     threadID: threadID,
@@ -68,14 +87,14 @@ final class ComposerStore: ObservableObject {
                     imageExtension: draft.imageExtension,
                     userHash: userHash
                 )
+                errorMessage = nil
+                return ComposerSubmission(destination: destination, threadID: threadID)
             }
-            errorMessage = nil
-            return true
         } catch is CancellationError {
-            return false
+            return nil
         } catch {
             errorMessage = error.localizedDescription
-            return false
+            return nil
         }
     }
 
@@ -85,5 +104,23 @@ final class ComposerStore: ObservableObject {
 
     func clearError() {
         errorMessage = nil
+    }
+
+    private func resolveNewThreadID(
+        userHash: String,
+        previousPostID: Int?
+    ) async -> Int? {
+        for attempt in 0..<3 {
+            if attempt > 0 {
+                try? await Task.sleep(for: .milliseconds(250 * attempt))
+            }
+            guard let latest = try? await apiClient.lastPost(userHash: userHash) else {
+                continue
+            }
+            if previousPostID == nil || latest.id != previousPostID {
+                return latest.threadID
+            }
+        }
+        return nil
     }
 }

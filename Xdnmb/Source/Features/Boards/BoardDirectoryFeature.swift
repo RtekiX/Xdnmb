@@ -8,7 +8,6 @@ import SwiftUI
 struct MainFeedScreen: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var preferences: BoardPreferencesStore
-    @EnvironmentObject private var appNavigationChrome: AppNavigationChromeModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @StateObject private var chrome = HomeFeedChromeModel()
@@ -18,7 +17,7 @@ struct MainFeedScreen: View {
     @State private var showingBoardManagement = false
 
     private let sourceRailHeight: CGFloat = 48
-    private let sourceContentMargin: CGFloat = 54
+    private let sourceContentMargin: CGFloat = 48
 
     private var allForums: [Forum] {
         app.forumGroups.flatMap(\.visibleForums).deduplicatedForums()
@@ -57,33 +56,35 @@ struct MainFeedScreen: View {
                 navigationState.showSources()
             }
         }
-        .onChange(of: navigationState.hidesBottomBar) {
-            appNavigationChrome.setBottomBarVisible(!navigationState.hidesBottomBar)
-        }
-        .onAppear {
-            appNavigationChrome.setBottomBarVisible(!navigationState.hidesBottomBar)
-        }
-        .onDisappear {
-            appNavigationChrome.showBottomBar()
-        }
     }
 
     private var feedWithSources: some View {
-        ZStack(alignment: .top) {
-            feedPager
-            sourceChrome
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
-                .zIndex(1)
+        GeometryReader { proxy in
+            let topInset = proxy.safeAreaInsets.top
+
+            ZStack(alignment: .top) {
+                feedPager(topContentMargin: topInset + sourceContentMargin)
+                    .ignoresSafeArea(.container, edges: [.top, .bottom])
+
+                HomeTopFadeMaterial()
+                    .frame(height: topInset + sourceContentMargin + 22)
+                    .zIndex(1)
+
+                sourceChrome
+                    .padding(.horizontal, 12)
+                    .padding(.top, topInset + 6)
+                    .zIndex(2)
+            }
+            .ignoresSafeArea(.container, edges: .top)
         }
     }
 
-    private var feedPager: some View {
+    private func feedPager(topContentMargin: CGFloat) -> some View {
         TabView(selection: selectedSourceBinding) {
             TimelineScreen(
                 chrome: chrome,
                 isChromeActive: selectedSourceID == "timeline",
-                topContentMargin: sourceContentMargin,
+                topContentMargin: topContentMargin,
                 onScrollOffsetChange: handleScrollOffset,
                 onScrollPhaseChange: handleScrollPhase,
                 onOpenThread: { directThreadID = $0 }
@@ -96,7 +97,7 @@ struct MainFeedScreen: View {
                     forum: forum,
                     chrome: chrome,
                     isChromeActive: selectedSourceID == id,
-                    topContentMargin: sourceContentMargin,
+                    topContentMargin: topContentMargin,
                     onScrollOffsetChange: handleScrollOffset,
                     onScrollPhaseChange: handleScrollPhase
                 )
@@ -282,6 +283,37 @@ struct MainFeedScreen: View {
     }
 }
 
+private struct HomeTopFadeMaterial: View {
+    var body: some View {
+        Rectangle()
+            .fill(.regularMaterial)
+            .overlay {
+                LinearGradient(
+                    colors: [
+                        .white.opacity(0.12),
+                        .white.opacity(0.04),
+                        .clear
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: 0.62),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
 private struct HomeSourceBar<MenuContent: View, PrimaryAction: View>: View {
     let forums: [Forum]
     @Binding var selectedSourceID: String
@@ -305,11 +337,16 @@ private struct HomeSourceBar<MenuContent: View, PrimaryAction: View>: View {
         if #available(iOS 26.0, *) {
             GlassEffectContainer(spacing: 10) {
                 barContent
-                    .glassEffect(.regular, in: .capsule)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .overlay {
+                        Capsule()
+                            .stroke(.white.opacity(0.22), lineWidth: 0.5)
+                            .allowsHitTesting(false)
+                    }
             }
         } else {
             barContent
-                .background(.ultraThinMaterial, in: .capsule)
+                .background(.regularMaterial, in: .capsule)
                 .overlay {
                     Capsule()
                         .stroke(.primary.opacity(0.08), lineWidth: 0.5)

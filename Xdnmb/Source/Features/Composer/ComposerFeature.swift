@@ -42,6 +42,7 @@ private struct ComposerScreenContent: View {
     let onSuccess: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var history: PostHistoryStore
     @StateObject private var model: ComposerStore
     @State private var content = ""
     @State private var title = ""
@@ -216,7 +217,7 @@ private struct ComposerScreenContent: View {
         case .thread(let forum): destination = .forum(forum.id)
         case .reply(let threadID): destination = .thread(threadID)
         }
-        let succeeded = await model.submit(
+        let submission = await model.submit(
             destination: destination,
             draft: ComposerDraft(
                 content: content,
@@ -227,9 +228,38 @@ private struct ComposerScreenContent: View {
             ),
             userHash: hash
         )
-        guard succeeded else { return }
+        guard let submission else { return }
+        history.record(historyEntry(for: submission))
         dismiss()
         await onSuccess()
+    }
+
+    private func historyEntry(for submission: ComposerSubmission) -> PostHistoryEntry {
+        let kind: PostHistoryKind
+        let forumID: Int?
+        let forumName: String?
+        switch mode {
+        case .thread(let forum):
+            kind = .thread
+            forumID = forum.id
+            forumName = forum.displayName
+        case .reply:
+            kind = .reply
+            forumID = nil
+            forumName = nil
+        }
+        return PostHistoryEntry(
+            id: UUID(),
+            kind: kind,
+            createdAt: Date(),
+            threadID: submission.threadID,
+            forumID: forumID,
+            forumName: forumName,
+            title: title,
+            content: content,
+            authorName: name,
+            hasAttachment: attachment != nil
+        )
     }
 }
 

@@ -72,6 +72,7 @@ struct ThreadListStoreStateTests {
 
         try await verifyThreadStore(apiClient: apiClient)
         try await verifyComposerStore(apiClient: apiClient)
+        try await verifyPostHistoryStore()
 
         print("Feature store state tests passed")
     }
@@ -115,19 +116,58 @@ struct ThreadListStoreStateTests {
             imageData: nil,
             imageExtension: nil
         )
-        let threadSucceeded = await store.submit(
+        let threadSubmission = await store.submit(
             destination: .forum(4),
             draft: draft,
             userHash: "writer-a"
         )
-        let replySucceeded = await store.submit(
+        let replySubmission = await store.submit(
             destination: .thread(101),
             draft: draft,
             userHash: "writer-a"
         )
-        try require(threadSucceeded && replySucceeded, "composer actions must delegate both destinations")
+        try require(
+            threadSubmission?.threadID == 202 && replySubmission?.threadID == 101,
+            "composer actions must return both successful destinations"
+        )
         let destinations = await apiClient.submittedDestinations
         try require(destinations == ["forum-4", "thread-101"], "composer must preserve its destination")
+    }
+
+    private static func verifyPostHistoryStore() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("XdnmbPostHistoryTests-\(UUID().uuidString)", isDirectory: true)
+        let storageURL = directory.appendingPathComponent("history.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let entry = PostHistoryEntry(
+            id: UUID(),
+            kind: .reply,
+            createdAt: Date(),
+            threadID: 101,
+            forumID: nil,
+            forumName: nil,
+            title: "",
+            content: "local reply",
+            authorName: "",
+            hasAttachment: false
+        )
+        let store = await MainActor.run { PostHistoryStore(storageURL: storageURL) }
+        await MainActor.run { store.record(entry) }
+        let reloaded = await MainActor.run { PostHistoryStore(storageURL: storageURL) }
+        let persistedEntries = await MainActor.run { reloaded.entries }
+        try require(
+            persistedEntries.count == 1 &&
+                persistedEntries[0].id == entry.id &&
+                persistedEntries[0].threadID == entry.threadID &&
+                persistedEntries[0].content == entry.content,
+            "post history must persist successful submissions"
+        )
+
+        await MainActor.run { reloaded.remove(id: entry.id) }
+        let emptyReload = await MainActor.run { PostHistoryStore(storageURL: storageURL) }
+        let remainingEntries = await MainActor.run { emptyReload.entries }
+        try require(remainingEntries.isEmpty, "post history deletion must persist")
     }
 
     private static func require(_ condition: Bool, _ message: String) throws {
@@ -150,6 +190,7 @@ private actor ThreadListMockAPIClient: XdnmbAPIClient {
     private(set) var requestedThreadPages: [Int] = []
     private(set) var submittedDestinations: [String] = []
     private var shouldFailNextTimelineRequest = false
+    private var lastPostRequestCount = 0
 
     func failNextTimelineRequest() {
         shouldFailNextTimelineRequest = true
@@ -198,7 +239,11 @@ private actor ThreadListMockAPIClient: XdnmbAPIClient {
         throw ThreadListStateTestError.failed("unused endpoint")
     }
     func lastPost(userHash: String) async throws -> LastPost {
-        throw ThreadListStateTestError.failed("unused endpoint")
+        lastPostRequestCount += 1
+        if lastPostRequestCount == 1 {
+            return LastPost(parentThreadID: 0, id: 99, content: "previous")
+        }
+        return LastPost(parentThreadID: 0, id: 202, content: "test")
     }
     func feed(id: String, page: Int, userHash: String?) async throws -> [FeedEntry] { [] }
     func addFeed(feedID: String, threadID: Int, userHash: String) async throws -> String { "added" }

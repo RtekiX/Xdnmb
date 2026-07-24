@@ -470,6 +470,8 @@ Content-Type: multipart/form-data
 
 **响应**：纯文本或 HTML，成功时服务器会重定向
 
+**客户端处理**：发新帖响应不保证直接包含主楼 ID。客户端在确认提交成功后，使用同一 `userhash` 调用 `Api/getLastPost`，以 `resto > 0 ? resto : id` 解析可导航的主楼 ID，用于本机发布历史；查询失败不应把已经成功的发帖回报为失败。
+
 ---
 
 #### 回复帖子

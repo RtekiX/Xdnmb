@@ -104,6 +104,33 @@ enum PreviewFixtures {
         FeedEntry(post: $0.post, recentReplies: $0.replies, category: "订阅")
     }
 
+    static let postHistory = [
+        PostHistoryEntry(
+            id: UUID(),
+            kind: .reply,
+            createdAt: Date().addingTimeInterval(-1_800),
+            threadID: threads[0].id,
+            forumID: nil,
+            forumName: nil,
+            title: "",
+            content: "沿河走很舒服，日落以后灯也很好看。",
+            authorName: "",
+            hasAttachment: false
+        ),
+        PostHistoryEntry(
+            id: UUID(),
+            kind: .thread,
+            createdAt: Date().addingTimeInterval(-86_400),
+            threadID: threads[1].id,
+            forumID: forums[2].id,
+            forumName: forums[2].displayName,
+            title: "第一次写 iOS App",
+            content: "SwiftUI 的 Preview 很适合打磨组件。大家会怎样组织示例数据？",
+            authorName: "无名氏",
+            hasAttachment: true
+        )
+    ]
+
     static func threadDetail(id: Int, onlyPO: Bool = false) -> ThreadDetail {
         let source = threads.first(where: { $0.id == id }) ?? threads[0]
         let root = Post(
