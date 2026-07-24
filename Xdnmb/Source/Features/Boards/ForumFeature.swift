@@ -7,8 +7,11 @@ import SwiftUI
 
 struct ForumScreen: View {
     let forum: Forum
-    var chrome: MainFeedChromeModel? = nil
+    var chrome: HomeFeedChromeModel? = nil
     var isChromeActive = true
+    var topContentMargin: CGFloat = 0
+    var onScrollOffsetChange: (CGFloat) -> Void = { _ in }
+    var onScrollPhaseChange: (Bool) -> Void = { _ in }
 
     @EnvironmentObject private var sessions: AppSessionStore
 
@@ -17,7 +20,10 @@ struct ForumScreen: View {
             forum: forum,
             model: sessions.forumStore(for: forum.id),
             chrome: chrome,
-            isChromeActive: isChromeActive
+            isChromeActive: isChromeActive,
+            topContentMargin: topContentMargin,
+            onScrollOffsetChange: onScrollOffsetChange,
+            onScrollPhaseChange: onScrollPhaseChange
         )
     }
 }
@@ -25,8 +31,11 @@ struct ForumScreen: View {
 private struct ForumScreenContent: View {
     let forum: Forum
     @ObservedObject var model: ThreadListStore
-    var chrome: MainFeedChromeModel? = nil
+    var chrome: HomeFeedChromeModel? = nil
     var isChromeActive = true
+    var topContentMargin: CGFloat = 0
+    var onScrollOffsetChange: (CGFloat) -> Void = { _ in }
+    var onScrollPhaseChange: (Bool) -> Void = { _ in }
 
     @EnvironmentObject private var identity: IdentityStore
     @State private var showingComposer = false
@@ -42,6 +51,7 @@ private struct ForumScreenContent: View {
         Group {
             if model.threads.isEmpty && model.isInitialLoading {
                 LoadingView(title: "正在加载\(forum.displayName)")
+                    .padding(.top, topContentMargin)
             } else if model.threads.isEmpty {
                 RetryView(
                     title: model.errorMessage == nil
@@ -51,14 +61,24 @@ private struct ForumScreenContent: View {
                 ) {
                     await model.refresh()
                 }
+                .padding(.top, topContentMargin)
             } else {
                 RefreshableInfiniteList(
                     items: model.threads,
                     isLoadingMore: model.isLoading,
                     canLoadMore: model.canLoadMore,
                     scrollToTopRequest: scrollToTopRequest,
+                    topContentMargin: topContentMargin,
                     onRefresh: { await model.refresh() },
                     onLoadMore: { await model.loadMore() },
+                    onScrollOffsetChange: {
+                        guard isChromeActive else { return }
+                        onScrollOffsetChange($0)
+                    },
+                    onScrollPhaseChange: {
+                        guard isChromeActive else { return }
+                        onScrollPhaseChange($0)
+                    },
                     header: {
                         if forum.message.htmlPlainText.nilIfBlank != nil {
                             NavigationLink {
@@ -101,13 +121,22 @@ private struct ForumScreenContent: View {
                 .background(AppTheme.groupedBackground)
             }
         }
-        .navigationTitle(forum.displayName)
-        .navigationBarTitleDisplayMode(.inline)
+        .xdnmbNavigationTitle(
+            forum.displayName,
+            isEnabled: chrome == nil
+        )
         .navigationDestination(isPresented: $showingNotice) {
             ForumNoticeScreen(forum: forum)
         }
         .toolbar {
             if chrome == nil {
+                if forum.message.htmlPlainText.nilIfBlank != nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { showingNotice = true } label: {
+                            Label("版块公告", systemImage: "pin.fill")
+                        }
+                    }
+                }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button("第 \(model.page) 页") { showingPageJump = true }
                         .disabled(model.isLoading)
@@ -148,6 +177,7 @@ private struct ForumScreenContent: View {
     private func updateChrome() {
         guard isChromeActive, let chrome else { return }
         chrome.configure(
+            navigationTitle: forum.displayName,
             page: model.page,
             pageEnabled: !model.isLoading,
             leadingTitle: "版块公告",

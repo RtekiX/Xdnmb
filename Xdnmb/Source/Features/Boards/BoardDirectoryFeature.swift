@@ -4,413 +4,528 @@
 //
 
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct MainFeedScreen: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var preferences: BoardPreferencesStore
-    @StateObject private var chrome = MainFeedChromeModel()
+    @EnvironmentObject private var appNavigationChrome: AppNavigationChromeModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @StateObject private var chrome = HomeFeedChromeModel()
+    @StateObject private var navigationState = HomeNavigationState()
     @State private var selectedSourceID = "timeline"
-    @State private var draggedForumID: Int?
-    @State private var showsSourceTabs = true
+    @State private var directThreadID: Int?
+    @State private var showingBoardManagement = false
+
+    private let sourceRailHeight: CGFloat = 48
+    private let sourceContentMargin: CGFloat = 54
 
     private var allForums: [Forum] {
         app.forumGroups.flatMap(\.visibleForums).deduplicatedForums()
     }
 
-    private var visibleForums: [Forum] {
+    private var residentForums: [Forum] {
         preferences.visibleForums(from: allForums)
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            MainFeedTabBar(
-                forums: visibleForums,
-                allForums: allForums,
-                selectedSourceID: $selectedSourceID,
-                draggedForumID: $draggedForumID
-            )
-            .frame(height: showsSourceTabs ? 55 : 0, alignment: .top)
-            .opacity(showsSourceTabs ? 1 : 0)
-            .clipped()
-            .allowsHitTesting(showsSourceTabs)
-            Divider()
-                .frame(height: showsSourceTabs ? 1 : 0)
-                .opacity(showsSourceTabs ? 1 : 0)
-            TabView(selection: $selectedSourceID) {
-                TimelineScreen(chrome: chrome, isChromeActive: selectedSourceID == "timeline")
-                    .tag("timeline")
-                ForEach(visibleForums) { forum in
-                    ForumScreen(
-                        forum: forum,
-                        chrome: chrome,
-                        isChromeActive: selectedSourceID == "forum-\(forum.id)"
-                    )
-                        .tag("forum-\(forum.id)")
-                }
+        feedWithSources
+        .sheet(isPresented: $showingBoardManagement) {
+            NavigationStack {
+                BoardManagementScreen(forums: allForums, isPresentedModally: true)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
-        .animation(.snappy(duration: 0.22), value: showsSourceTabs)
-        .environment(\.mainFeedNavigationVisibilityHandler) { shouldShow in
-            guard showsSourceTabs != shouldShow else { return }
-            withAnimation(.snappy(duration: 0.22)) {
-                showsSourceTabs = shouldShow
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button { chrome.performLeadingAction() } label: {
-                    Image(systemName: chrome.leadingSymbol)
-                        .frame(width: 28)
-                }
-                .disabled(!chrome.leadingEnabled)
-                .opacity(chrome.leadingEnabled ? 1 : 0)
-                .accessibilityLabel(chrome.leadingTitle)
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { chrome.openPagePicker() } label: {
-                    Text("第 \(chrome.page) 页")
-                        .monospacedDigit()
-                        .frame(width: 62)
-                }
-                .disabled(!chrome.pageEnabled)
-                Button { chrome.performPrimaryAction() } label: {
-                    Image(systemName: chrome.primarySymbol)
-                        .frame(width: 28)
-                }
-                .disabled(!chrome.primaryEnabled)
-                .accessibilityLabel(chrome.primaryTitle)
+        .navigationDestination(isPresented: Binding(
+            get: { directThreadID != nil },
+            set: { if !$0 { directThreadID = nil } }
+        )) {
+            if let directThreadID {
+                ThreadDetailScreen(threadID: directThreadID)
             }
         }
         .task(id: allForums.map(\.id)) {
             preferences.reconcile(with: allForums)
+            ensureValidSelection()
         }
-        .onChange(of: visibleForums.map(\.id)) {
-            guard selectedSourceID != "timeline" else { return }
-            let validIDs = Set(visibleForums.map { "forum-\($0.id)" })
-            if !validIDs.contains(selectedSourceID) {
-                selectedSourceID = "timeline"
+        .onChange(of: residentForums.map(\.id)) {
+            ensureValidSelection()
+        }
+        .onChange(of: voiceOverEnabled) {
+            if voiceOverEnabled {
+                navigationState.showSources()
             }
+        }
+        .onChange(of: navigationState.hidesBottomBar) {
+            appNavigationChrome.setBottomBarVisible(!navigationState.hidesBottomBar)
+        }
+        .onAppear {
+            appNavigationChrome.setBottomBarVisible(!navigationState.hidesBottomBar)
+        }
+        .onDisappear {
+            appNavigationChrome.showBottomBar()
         }
     }
-}
 
-private struct MainFeedTabBar: View {
-    let forums: [Forum]
-    let allForums: [Forum]
-    @Binding var selectedSourceID: String
-    @Binding var draggedForumID: Int?
-
-    @EnvironmentObject private var preferences: BoardPreferencesStore
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        sourceButton(title: "综合线", sourceID: "timeline")
-                            .id("timeline")
-                        ForEach(forums) { forum in
-                            sourceButton(title: forum.displayName, sourceID: "forum-\(forum.id)")
-                                .id("forum-\(forum.id)")
-                                .onDrag {
-                                    draggedForumID = forum.id
-                                    return NSItemProvider(object: String(forum.id) as NSString)
-                                }
-                                .onDrop(
-                                    of: [UTType.text],
-                                    delegate: BoardTabDropDelegate(
-                                        destinationID: forum.id,
-                                        draggedForumID: $draggedForumID,
-                                        preferences: preferences
-                                    )
-                                )
-                                .accessibilityHint("长按拖动可调整版块顺序")
-                        }
-                    }
-                    .padding(.leading, 12)
-                    .padding(.vertical, 8)
-                }
-                .onChange(of: selectedSourceID) {
-                    withAnimation { proxy.scrollTo(selectedSourceID, anchor: .center) }
-                }
-            }
-            NavigationLink {
-                BoardManagementScreen(forums: allForums)
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .frame(width: 38, height: 38)
-                    .background(.quaternary, in: .circle)
-            }
-            .accessibilityLabel("管理版块")
-            .padding(.trailing, 10)
+    private var feedWithSources: some View {
+        ZStack(alignment: .top) {
+            feedPager
+            sourceChrome
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+                .zIndex(1)
         }
-        .background(.bar)
     }
 
-    private func sourceButton(title: String, sourceID: String) -> some View {
-        Button {
-            withAnimation(.snappy) { selectedSourceID = sourceID }
-        } label: {
-            Text(title)
-                .font(.subheadline.weight(selectedSourceID == sourceID ? .semibold : .regular))
-                .foregroundStyle(selectedSourceID == sourceID ? .white : .primary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(
-                    selectedSourceID == sourceID ? AppTheme.accent : Color.clear,
-                    in: .capsule
+    private var feedPager: some View {
+        TabView(selection: selectedSourceBinding) {
+            TimelineScreen(
+                chrome: chrome,
+                isChromeActive: selectedSourceID == "timeline",
+                topContentMargin: sourceContentMargin,
+                onScrollOffsetChange: handleScrollOffset,
+                onScrollPhaseChange: handleScrollPhase,
+                onOpenThread: { directThreadID = $0 }
+            )
+            .tag("timeline")
+
+            ForEach(residentForums) { forum in
+                let id = sourceID(for: forum)
+                ForumScreen(
+                    forum: forum,
+                    chrome: chrome,
+                    isChromeActive: selectedSourceID == id,
+                    topContentMargin: sourceContentMargin,
+                    onScrollOffsetChange: handleScrollOffset,
+                    onScrollPhaseChange: handleScrollPhase
                 )
+                .tag(id)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+    }
+
+    private var sourceChrome: some View {
+        ZStack(alignment: .top) {
+            HomeSourceBar(
+                forums: residentForums,
+                selectedSourceID: selectedSourceBinding
+            ) {
+                sourceMenu(showTitle: false)
+            } primaryAction: {
+                primaryActionButton
+            }
+            .frame(height: sourceRailHeight)
+            .offset(
+                y: -sourceContentMargin * (1 - navigationState.revealProgress)
+            )
+            .opacity(navigationState.revealProgress)
+            .allowsHitTesting(navigationState.acceptsSourceInteraction)
+            .accessibilityHidden(!navigationState.acceptsSourceInteraction)
+
+            HomeCompactCommandBar {
+                sourceMenu(showTitle: true)
+            } primaryAction: {
+                primaryActionButton
+            }
+            .opacity(1 - navigationState.revealProgress)
+            .scaleEffect(0.94 + (0.06 * (1 - navigationState.revealProgress)))
+            .allowsHitTesting(!navigationState.acceptsSourceInteraction)
+            .accessibilityHidden(navigationState.acceptsSourceInteraction)
+        }
+    }
+
+    private func sourceMenu(showTitle: Bool) -> some View {
+        Menu {
+            if !navigationState.isExpanded {
+                Button {
+                    withAnimation(navigationAnimation) {
+                        navigationState.showSources()
+                    }
+                } label: {
+                    Label("显示版块导航", systemImage: "rectangle.expand.vertical")
+                }
+            }
+
+            if chrome.leadingEnabled {
+                Button {
+                    chrome.performLeadingAction()
+                } label: {
+                    Label(chrome.leadingTitle, systemImage: chrome.leadingSymbol)
+                }
+            }
+
+            if chrome.pageEnabled {
+                Button {
+                    chrome.openPagePicker()
+                } label: {
+                    Label(
+                        "跳转页面 · 当前第 \(chrome.page) 页",
+                        systemImage: "doc.text.magnifyingglass"
+                    )
+                }
+            }
+
+            Divider()
+
+            Button {
+                showingBoardManagement = true
+            } label: {
+                Label("管理常驻版块", systemImage: "slider.horizontal.3")
+            }
+        } label: {
+            if showTitle {
+                HStack(spacing: 5) {
+                    Text(currentSourceTitle)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.semibold))
+                }
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .frame(height: 40)
+            } else {
+                Image(systemName: "ellipsis")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 40, height: 40)
+                    .contentShape(.circle)
+            }
         }
         .buttonStyle(.plain)
-    }
-}
-
-struct BoardDirectoryScreen: View {
-    @EnvironmentObject private var app: AppModel
-    @EnvironmentObject private var identity: IdentityStore
-    @EnvironmentObject private var preferences: BoardPreferencesStore
-    @Environment(\.appRuntimeMode) private var runtimeMode
-    @StateObject private var chrome = MainFeedChromeModel()
-    @State private var selectedForumID: Int?
-    @State private var draggedForumID: Int?
-
-    private var allForums: [Forum] {
-        app.forumGroups.flatMap(\.visibleForums).deduplicatedForums()
+        .accessibilityLabel("当前来源，\(currentSourceTitle)")
+        .accessibilityHint("打开来源与页面操作")
     }
 
-    private var visibleForums: [Forum] {
-        preferences.visibleForums(from: allForums)
+    @ViewBuilder
+    private var primaryActionButton: some View {
+        let button = Button {
+            chrome.performPrimaryAction()
+        } label: {
+            Image(systemName: chrome.primarySymbol)
+                .frame(width: 40, height: 40)
+                .contentShape(.circle)
+        }
+        .disabled(!chrome.primaryEnabled)
+        .opacity(chrome.primaryEnabled ? 1 : 0)
+        .accessibilityLabel(chrome.primaryTitle)
+
+        if #available(iOS 26.0, *) {
+            button
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .glassEffect(
+                    .regular.tint(AppTheme.accent).interactive(),
+                    in: .circle
+                )
+        } else {
+            button
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .background(AppTheme.accent, in: .circle)
+        }
     }
 
-    private var selectedForum: Forum? {
-        visibleForums.first { $0.id == selectedForumID } ?? visibleForums.first
+    private var currentSourceTitle: String {
+        if selectedSourceID == "timeline" {
+            return chrome.navigationTitle
+        }
+        return residentForums.first {
+            sourceID(for: $0) == selectedSourceID
+        }?.displayName ?? chrome.navigationTitle
     }
 
-    var body: some View {
-        Group {
-            if app.isBootstrapping && allForums.isEmpty {
-                LoadingView(title: "正在加载版块")
-            } else if allForums.isEmpty, let error = app.forumError {
-                RetryView(title: "版块加载失败", message: error) { await refresh() }
-            } else if visibleForums.isEmpty {
-                ContentUnavailableView {
-                    Label("没有显示的版块", systemImage: "rectangle.stack.badge.minus")
-                } description: {
-                    Text("请在版块管理中选择至少一个要展示的版块。")
-                } actions: {
-                    NavigationLink("打开版块管理") {
-                        BoardManagementScreen(forums: allForums)
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            } else {
-                VStack(spacing: 0) {
-                    BoardTabBar(
-                        forums: visibleForums,
-                        selectedForumID: Binding(
-                            get: { selectedForum?.id },
-                            set: { selectedForumID = $0 }
-                        ),
-                        draggedForumID: $draggedForumID
-                    )
-                    Divider()
-                    TabView(selection: Binding(
-                        get: { selectedForum?.id ?? visibleForums[0].id },
-                        set: { selectedForumID = $0 }
-                    )) {
-                        ForEach(visibleForums) { forum in
-                            ForumScreen(
-                                forum: forum,
-                                chrome: chrome,
-                                isChromeActive: selectedForum?.id == forum.id
-                            )
-                                .tag(forum.id)
-                        }
-                    }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
+    private var selectedSourceBinding: Binding<String> {
+        Binding(
+            get: { selectedSourceID },
+            set: { newValue in
+                guard selectedSourceID != newValue else { return }
+                selectedSourceID = newValue
+                withAnimation(navigationAnimation) {
+                    navigationState.beginSourceTransition()
                 }
             }
+        )
+    }
+
+    private var navigationAnimation: Animation {
+        reduceMotion
+            ? .easeOut(duration: 0.12)
+            : .snappy(duration: 0.2)
+    }
+
+    private func handleScrollOffset(_ offset: CGFloat) {
+        navigationState.recordScrollOffset(
+            offset,
+            allowsAutomaticCollapse: !voiceOverEnabled
+        )
+    }
+
+    private func handleScrollPhase(_ isScrolling: Bool) {
+        guard !isScrolling, !voiceOverEnabled else { return }
+        withAnimation(navigationAnimation) {
+            navigationState.settle()
         }
-        .navigationTitle(selectedForum?.displayName ?? "版块")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                NavigationLink {
-                    BoardManagementScreen(forums: allForums)
-                } label: {
-                    Label("管理版块", systemImage: "slider.horizontal.3")
-                }
-                .disabled(allForums.isEmpty)
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { chrome.openPagePicker() } label: {
-                    Text("第 \(chrome.page) 页")
-                        .monospacedDigit()
-                        .frame(width: 62)
-                }
-                .disabled(selectedForum == nil || !chrome.pageEnabled)
-                .opacity(selectedForum == nil ? 0 : 1)
-                Button { chrome.performPrimaryAction() } label: {
-                    Image(systemName: chrome.primarySymbol)
-                        .frame(width: 28)
-                }
-                .disabled(selectedForum == nil || !chrome.primaryEnabled)
-                .opacity(selectedForum == nil ? 0 : 1)
-                .accessibilityLabel(chrome.primaryTitle)
-            }
-        }
-        .task(id: allForums.map(\.id)) {
-            preferences.reconcile(with: allForums)
-            ensureValidSelection()
-        }
-        .onChange(of: visibleForums.map(\.id)) {
-            ensureValidSelection()
-        }
+    }
+
+    private func sourceID(for forum: Forum) -> String {
+        "forum-\(forum.id)"
     }
 
     private func ensureValidSelection() {
-        guard !visibleForums.isEmpty else {
-            selectedForumID = nil
-            return
+        guard selectedSourceID != "timeline" else { return }
+        let validIDs = Set(residentForums.map(sourceID))
+        if !validIDs.contains(selectedSourceID) {
+            selectedSourceID = "timeline"
+            navigationState.beginSourceTransition()
         }
-        if !visibleForums.contains(where: { $0.id == selectedForumID }) {
-            selectedForumID = visibleForums[0].id
-        }
-    }
-
-    private func refresh() async {
-        guard !runtimeMode.isPreview else { return }
-        await app.bootstrap(userHash: identity.browsingUserHash)
     }
 }
 
-private struct BoardTabBar: View {
+private struct HomeSourceBar<MenuContent: View, PrimaryAction: View>: View {
     let forums: [Forum]
-    @Binding var selectedForumID: Int?
-    @Binding var draggedForumID: Int?
+    @Binding var selectedSourceID: String
+    let menu: () -> MenuContent
+    let primaryAction: () -> PrimaryAction
 
-    @EnvironmentObject private var preferences: BoardPreferencesStore
+    init(
+        forums: [Forum],
+        selectedSourceID: Binding<String>,
+        @ViewBuilder menu: @escaping () -> MenuContent,
+        @ViewBuilder primaryAction: @escaping () -> PrimaryAction
+    ) {
+        self.forums = forums
+        _selectedSourceID = selectedSourceID
+        self.menu = menu
+        self.primaryAction = primaryAction
+    }
 
+    @ViewBuilder
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(forums) { forum in
-                        Button {
-                            withAnimation(.snappy) { selectedForumID = forum.id }
-                        } label: {
-                            Text(forum.displayName)
-                                .font(.subheadline.weight(selectedForumID == forum.id ? .semibold : .regular))
-                                .foregroundStyle(selectedForumID == forum.id ? .white : .primary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(
-                                    selectedForumID == forum.id ? AppTheme.accent : Color.clear,
-                                    in: .capsule
-                                )
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: 10) {
+                barContent
+                    .glassEffect(.regular, in: .capsule)
+            }
+        } else {
+            barContent
+                .background(.ultraThinMaterial, in: .capsule)
+                .overlay {
+                    Capsule()
+                        .stroke(.primary.opacity(0.08), lineWidth: 0.5)
+                }
+        }
+    }
+
+    private var barContent: some View {
+        HStack(spacing: 4) {
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        sourceButton(title: "综合线", sourceID: "timeline")
+                            .id("timeline")
+
+                        ForEach(forums) { forum in
+                            let sourceID = "forum-\(forum.id)"
+                            sourceButton(title: forum.displayName, sourceID: sourceID)
+                                .id(sourceID)
                         }
-                        .buttonStyle(.plain)
-                        .id(forum.id)
-                        .onDrag {
-                            draggedForumID = forum.id
-                            return NSItemProvider(object: String(forum.id) as NSString)
-                        }
-                        .onDrop(
-                            of: [UTType.text],
-                            delegate: BoardTabDropDelegate(
-                                destinationID: forum.id,
-                                draggedForumID: $draggedForumID,
-                                preferences: preferences
-                            )
+                    }
+                    .padding(.leading, 4)
+                }
+                .mask {
+                    HStack(spacing: 0) {
+                        Rectangle()
+                        LinearGradient(
+                            colors: [.white, .clear],
+                            startPoint: .leading,
+                            endPoint: .trailing
                         )
-                        .accessibilityHint("长按拖动可调整版块顺序")
+                        .frame(width: 18)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .onChange(of: selectedSourceID) {
+                    withAnimation(.snappy) {
+                        proxy.scrollTo(selectedSourceID, anchor: .center)
+                    }
+                }
             }
-            .onChange(of: selectedForumID) {
-                guard let selectedForumID else { return }
-                withAnimation { proxy.scrollTo(selectedForumID, anchor: .center) }
-            }
+
+            Divider()
+                .frame(height: 24)
+
+            menu()
+
+            primaryAction()
+            .padding(.trailing, 4)
         }
-        .background(.bar)
+        .padding(.vertical, 4)
+        .frame(height: 48)
+    }
+
+    @ViewBuilder
+    private func sourceButton(title: String, sourceID: String) -> some View {
+        let button = Button {
+            withAnimation(.snappy) {
+                selectedSourceID = sourceID
+            }
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(selectedSourceID == sourceID ? .semibold : .regular))
+                .lineLimit(1)
+                .padding(.horizontal, 14)
+                .frame(height: 40)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(selectedSourceID == sourceID ? "已选择" : "未选择")
+
+        if #available(iOS 26.0, *) {
+            if selectedSourceID == sourceID {
+                button
+                    .foregroundStyle(.white)
+                    .glassEffect(
+                        .regular.tint(AppTheme.accent).interactive(),
+                        in: .capsule
+                    )
+            } else {
+                button.foregroundStyle(.primary)
+            }
+        } else if selectedSourceID == sourceID {
+            button
+                .foregroundStyle(.white)
+                .background(AppTheme.accent, in: .capsule)
+        } else {
+            button.foregroundStyle(.primary)
+        }
     }
 }
 
-private struct BoardTabDropDelegate: DropDelegate {
-    let destinationID: Int
-    @Binding var draggedForumID: Int?
-    let preferences: BoardPreferencesStore
+private struct HomeCompactCommandBar<MenuContent: View, PrimaryAction: View>: View {
+    let menu: () -> MenuContent
+    let primaryAction: () -> PrimaryAction
 
-    func dropEntered(info: DropInfo) {
-        guard let draggedForumID, draggedForumID != destinationID else { return }
-        withAnimation(.snappy) {
-            preferences.move(forumID: draggedForumID, before: destinationID)
-        }
+    init(
+        @ViewBuilder menu: @escaping () -> MenuContent,
+        @ViewBuilder primaryAction: @escaping () -> PrimaryAction
+    ) {
+        self.menu = menu
+        self.primaryAction = primaryAction
     }
 
-    func performDrop(info: DropInfo) -> Bool {
-        draggedForumID = nil
-        return true
+    var body: some View {
+        HStack(spacing: 8) {
+            glassSurface {
+                menu()
+            }
+            Spacer(minLength: 12)
+            primaryAction()
+        }
+        .frame(height: 48)
+    }
+
+    @ViewBuilder
+    private func glassSurface<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if #available(iOS 26.0, *) {
+            content()
+                .glassEffect(.regular, in: .capsule)
+        } else {
+            content()
+                .background(.ultraThinMaterial, in: .capsule)
+                .overlay {
+                    Capsule()
+                        .stroke(.primary.opacity(0.08), lineWidth: 0.5)
+                }
+        }
     }
 }
 
 struct BoardManagementScreen: View {
     let forums: [Forum]
+    var isPresentedModally = false
 
     @EnvironmentObject private var preferences: BoardPreferencesStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var editMode: EditMode = .active
+    @State private var searchText = ""
 
-    private var visibleForums: [Forum] { preferences.visibleForums(from: forums) }
-    private var hiddenForums: [Forum] { preferences.hiddenForums(from: forums) }
+    private var residentForums: [Forum] {
+        preferences.visibleForums(from: forums)
+    }
+
+    private var availableForums: [Forum] {
+        let hiddenForums = preferences.hiddenForums(from: forums)
+        guard !searchText.isEmpty else { return hiddenForums }
+        return hiddenForums.filter {
+            $0.displayName.localizedCaseInsensitiveContains(searchText)
+        }
+    }
 
     var body: some View {
         List {
             Section {
-                ForEach(visibleForums) { forum in
+                ForEach(residentForums) { forum in
                     HStack(spacing: 12) {
-                        Image(systemName: "line.3.horizontal")
-                            .foregroundStyle(.tertiary)
                         BoardRow(forum: forum)
                         Spacer()
-                        Button("隐藏", systemImage: "eye.slash") {
+                        Button("移除", systemImage: "minus.circle") {
                             preferences.setVisible(false, forumID: forum.id)
                         }
-                        .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
                     }
                 }
                 .onMove { offsets, destination in
-                    preferences.moveVisibleForums(from: offsets, to: destination, forums: forums)
+                    preferences.moveVisibleForums(
+                        from: offsets,
+                        to: destination,
+                        forums: forums
+                    )
                 }
             } header: {
-                Text("已显示")
+                Text("首页常驻")
             } footer: {
-                Text("可拖动排序；主页面也支持长按版块标签直接调整。")
+                Text("拖动右侧排序控件调整首页来源顺序；综合线始终固定在最前。")
             }
 
-            if !hiddenForums.isEmpty {
-                Section("未显示") {
-                    ForEach(hiddenForums) { forum in
+            if !availableForums.isEmpty {
+                Section("添加版块") {
+                    ForEach(availableForums) { forum in
                         HStack {
                             BoardRow(forum: forum)
                             Spacer()
-                            Button("显示", systemImage: "plus.circle") {
+                            Button("添加", systemImage: "plus.circle") {
                                 preferences.setVisible(true, forumID: forum.id)
                             }
-                            .labelStyle(.iconOnly)
                             .buttonStyle(.borderless)
                         }
                     }
                 }
+            } else if !searchText.isEmpty {
+                ContentUnavailableView.search(text: searchText)
             }
         }
-        .navigationTitle("版块管理")
+        .navigationTitle("常驻版块")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { EditButton() }
-        .onAppear { preferences.reconcile(with: forums) }
+        .searchable(text: $searchText, prompt: "搜索待添加版块")
+        .environment(\.editMode, $editMode)
+        .toolbar {
+            if isPresentedModally {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    EditButton()
+                }
+            }
+        }
+        .onAppear {
+            preferences.reconcile(with: forums)
+            editMode = .active
+        }
     }
 }
 

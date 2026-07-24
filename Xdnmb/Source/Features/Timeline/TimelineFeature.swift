@@ -6,8 +6,12 @@
 import SwiftUI
 
 struct TimelineScreen: View {
-    var chrome: MainFeedChromeModel? = nil
+    var chrome: HomeFeedChromeModel? = nil
     var isChromeActive = true
+    var topContentMargin: CGFloat = 0
+    var onScrollOffsetChange: (CGFloat) -> Void = { _ in }
+    var onScrollPhaseChange: (Bool) -> Void = { _ in }
+    var onOpenThread: ((Int) -> Void)? = nil
 
     @EnvironmentObject private var sessions: AppSessionStore
 
@@ -15,15 +19,23 @@ struct TimelineScreen: View {
         TimelineScreenContent(
             model: sessions.timelineStore(),
             chrome: chrome,
-            isChromeActive: isChromeActive
+            isChromeActive: isChromeActive,
+            topContentMargin: topContentMargin,
+            onScrollOffsetChange: onScrollOffsetChange,
+            onScrollPhaseChange: onScrollPhaseChange,
+            onOpenThread: onOpenThread
         )
     }
 }
 
 private struct TimelineScreenContent: View {
     @ObservedObject var model: ThreadListStore
-    var chrome: MainFeedChromeModel? = nil
+    var chrome: HomeFeedChromeModel? = nil
     var isChromeActive = true
+    var topContentMargin: CGFloat = 0
+    var onScrollOffsetChange: (CGFloat) -> Void = { _ in }
+    var onScrollPhaseChange: (Bool) -> Void = { _ in }
+    var onOpenThread: ((Int) -> Void)? = nil
 
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var identity: IdentityStore
@@ -44,13 +56,20 @@ private struct TimelineScreenContent: View {
     }
 
     var body: some View {
+        navigationContent
+    }
+
+    private var screenContent: some View {
         Group {
             if app.isBootstrapping && app.timelines.isEmpty {
                 LoadingView(title: "正在连接 X 岛")
+                    .padding(.top, topContentMargin)
             } else if app.timelines.isEmpty, let error = app.timelineError {
                 RetryView(title: "暂时无法连接", message: error) { await bootstrap() }
+                    .padding(.top, topContentMargin)
             } else if model.threads.isEmpty && model.isInitialLoading {
                 LoadingView(title: "正在加载时间线")
+                    .padding(.top, topContentMargin)
             } else if model.threads.isEmpty {
                 RetryView(
                     title: model.errorMessage == nil
@@ -60,12 +79,15 @@ private struct TimelineScreenContent: View {
                 ) {
                     await model.refresh()
                 }
+                .padding(.top, topContentMargin)
             } else {
                 threadList
             }
         }
-        .navigationTitle(selectedTimeline?.displayName ?? "X 岛")
-        .navigationBarTitleDisplayMode(.inline)
+        .xdnmbNavigationTitle(
+            selectedTimeline?.displayName ?? "X 岛",
+            isEnabled: chrome == nil
+        )
         .toolbar {
             if chrome == nil {
                 ToolbarItem(placement: .topBarLeading) {
@@ -96,7 +118,13 @@ private struct TimelineScreenContent: View {
         .onChange(of: model.isLoading) { updateChrome() }
         .onChange(of: selectedTimeline?.id) { updateChrome() }
         .sheet(isPresented: $showingThreadJump) {
-            ThreadJumpSheet { directThreadID = $0 }
+            ThreadJumpSheet { threadID in
+                if let onOpenThread {
+                    onOpenThread(threadID)
+                } else {
+                    directThreadID = threadID
+                }
+            }
         }
         .sheet(isPresented: $showingPageJump) {
             if let timeline = selectedTimeline {
@@ -114,7 +142,7 @@ private struct TimelineScreenContent: View {
                 Button {
                     selectTimeline(timeline)
                 } label: {
-                    if timeline.id == selectedTimeline?.id {
+                    if selectedTimeline?.id == timeline.id {
                         Label(timeline.displayName, systemImage: "checkmark")
                     } else {
                         Text(timeline.displayName)
@@ -124,11 +152,22 @@ private struct TimelineScreenContent: View {
         } message: {
             Text("切换后将从所选时间线的第 1 页开始加载。")
         }
-        .navigationDestination(isPresented: Binding(
-            get: { directThreadID != nil },
-            set: { if !$0 { directThreadID = nil } }
-        )) {
-            if let id = directThreadID { ThreadDetailScreen(threadID: id) }
+    }
+
+    @ViewBuilder
+    private var navigationContent: some View {
+        if onOpenThread == nil {
+            screenContent
+                .navigationDestination(isPresented: Binding(
+                    get: { directThreadID != nil },
+                    set: { if !$0 { directThreadID = nil } }
+                )) {
+                    if let id = directThreadID {
+                        ThreadDetailScreen(threadID: id)
+                    }
+                }
+        } else {
+            screenContent
         }
     }
 
@@ -138,8 +177,17 @@ private struct TimelineScreenContent: View {
             isLoadingMore: model.isLoading,
             canLoadMore: model.canLoadMore,
             scrollToTopRequest: scrollToTopRequest,
+            topContentMargin: topContentMargin,
             onRefresh: { await model.refresh() },
             onLoadMore: { await model.loadMore() },
+            onScrollOffsetChange: {
+                guard isChromeActive else { return }
+                onScrollOffsetChange($0)
+            },
+            onScrollPhaseChange: {
+                guard isChromeActive else { return }
+                onScrollPhaseChange($0)
+            },
             header: {
                 if let notice = app.notice, notice.enable, notice.content.nilIfBlank != nil {
                     NavigationLink {
@@ -249,6 +297,7 @@ private struct TimelineScreenContent: View {
     private func updateChrome() {
         guard isChromeActive, let chrome else { return }
         chrome.configure(
+            navigationTitle: selectedTimeline?.displayName ?? "综合线",
             page: model.page,
             pageEnabled: selectedTimeline != nil && !model.isLoading,
             leadingTitle: "切换时间线",

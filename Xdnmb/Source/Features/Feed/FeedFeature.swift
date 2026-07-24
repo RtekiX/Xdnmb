@@ -64,9 +64,26 @@ private struct FeedScreenContent: View {
         .navigationTitle("订阅")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("第 \(model.page) 页") { showingPageJump = true }
-                .disabled(model.isLoading && model.threads.isEmpty)
+            ToolbarItem(placement: .principal) {
+                Menu {
+                    Button {
+                        showingPageJump = true
+                    } label: {
+                        Label(
+                            "跳转页面 · 当前第 \(model.page) 页",
+                            systemImage: "doc.text.magnifyingglass"
+                        )
+                    }
+                    .disabled(model.isLoading && model.threads.isEmpty)
+                } label: {
+                    HStack(spacing: 5) {
+                        Text("订阅")
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.semibold))
+                    }
+                    .font(.headline)
+                }
+                .accessibilityHint("打开订阅页面操作")
             }
         }
         .task(id: "\(identity.feedID)-\(identity.browsingCookieID?.uuidString ?? "anonymous")") {

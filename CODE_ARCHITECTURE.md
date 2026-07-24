@@ -7,7 +7,7 @@
 
 本文档描述 Xdnmb iOS 客户端的当前代码架构，是功能边界、状态所有权和依赖方向的权威说明。API 能力以同目录下的 [`xdnmb_api.md`](./xdnmb_api.md) 为准。
 
-最后同步：2026-07-22
+最后同步：2026-07-23
 
 ## 架构目标
 
@@ -54,8 +54,10 @@ UI          → Model（仅展示所需）
 |---|---|---|
 | `AppModel` | App | 站点 bootstrap、版块/时间线/公告、订阅集合、串阅读位置 |
 | `IdentityStore` | App | Keychain 中的饼干、浏览/发帖主饼干、Feed ID |
-| `BoardPreferencesStore` | App | 版块显示、隐藏与排序偏好 |
+| `BoardPreferencesStore` | App | 首页常驻版块的显示、隐藏与排序偏好 |
 | `AppSessionStore` | App | 列表与串详情 Store 的稳定所有权和缓存 |
+| `AppBottomAccessoryModel` | App | 自定义底部 Dock 上方临时 accessory 的展示身份、文案和动作 |
+| `AppNavigationChromeModel` | App | 自定义底部 Dock 的跨页面可见性 |
 | `XdnmbAPIClient` | App | 所有远程 API 的抽象依赖 |
 
 SwiftUI 页面通过 Environment 获得应用状态和会话 Store；API 依赖只在 composition root 通过初始化参数传入 `AppModel` 与 `AppSessionStore`。Preview 使用相同页面结构和本地 fixtures，不发出线上请求。
@@ -97,23 +99,37 @@ Feed 类列表不把“当前可见项”持续写回业务状态。正常 push/
 
 显式跳页通过 `scrollToTopRequest` 请求列表滚到顶部。串详情因需要跨会话恢复阅读进度，单独使用 `ThreadReadingPosition` 保存页码与帖子 ID。
 
+`RefreshableInfiniteList` 通过 `onScrollGeometryChange` 输出归一化纵向偏移，并通过 `onScrollPhaseChange` 输出手势/减速阶段，但不持久化偏移，也不改变 Store。首页的 `HomeNavigationState` 将相邻偏移差按 56pt 行程连续映射为 `0...1` 的来源轨道显示进度，因此轨道位移与手指逐帧同步；滚动停止后才吸附到完全展开或完全收起，避免半截状态。回到顶部、切换来源或开启 VoiceOver 时强制恢复；紧凑态吸附完成后通过 `AppNavigationChromeModel` 动画隐藏自定义底部 Dock，向上恢复后重新显示。
+
 ## 功能模块
 
 | 功能 | 页面入口 | 状态/服务 | API 能力 |
 |---|---|---|---|
-| 综合时间线 | `TimelineScreen` | `ThreadListStore.timeline` | 时间线列表、时间线帖子、站点公告 |
-| 版块浏览 | `ForumScreen`、`BoardDirectoryScreen` | `ThreadListStore.forum`、版块偏好 | 版块列表、版块帖子 |
+| 首页来源 Feed | `MainFeedScreen` → `TimelineScreen` / `ForumScreen` | `ThreadListStore.timeline`、按版块缓存的 `ThreadListStore.forum` | 时间线、版块帖子、公告、串号直达、发新串 |
 | 订阅 Feed | `FeedScreen` | `ThreadListStore.feed`、`AppModel.subscribedThreadIDs` | Feed 列表、添加/删除订阅 |
 | 串详情 | `ThreadDetailScreen` | `ThreadStore`、阅读位置 | 完整串、只看 PO、分页 |
 | 发串与回复 | `ComposerScreen` | `ComposerStore`、页面草稿状态 | 发新串、回复、图片上传 |
 | 身份与个人页 | `ProfileScreen` | `IdentityStore` | 饼干导入/选择、最近发帖、Feed ID |
-| 版块定制 | `BoardManagementScreen` | `BoardPreferencesStore` | 本地显示、隐藏、拖动排序 |
+| 常驻版块定制 | `MainFeedScreen` sheet → `BoardManagementScreen` | `BoardPreferencesStore` | 本地搜索、添加、移除、无限量常驻与拖动排序 |
 | 协议与政策 | `ProfileScreen` → No.11689471 | `ThreadStore` | 读取指定串 |
 
-## UI 组件边界
+## 顶层导航与 UI 组件边界
 
-- `RefreshableInfiniteList`：只负责列表布局、下拉刷新、触底信号、导航栏显隐和显式滚顶；不拥有分页规则和数据身份。
-- `MainFeedChromeModel`：在分页 Tab 容器与当前子页之间传递固定宽度的导航栏展示状态及用户操作。
+顶层使用“首页 / 订阅 / 我的”三个常驻叠层内容页，每个页签持有独立 `NavigationStack`；不创建系统 `TabView` / Tab Bar，由应用级透明玻璃 Dock 提供唯一切换入口。非当前层关闭点击和无障碍暴露，但不销毁导航栈：
+
+- 首页不再叠加系统 Navigation Title。固定 48pt 的 `HomeSourceBar` 同时容纳来源选择、低频操作菜单与当前来源的唯一主操作，形成单层玻璃指令轨道。
+- 指令轨道固定“综合线”并横向展示用户的全部常驻版块；常驻数量不设上限，超出宽度后左右滚动。轨道不参与 Feed 高度布局，Feed 使用 54pt 可滚动顶部 content margin（48pt 轨道加 6pt 顶距）紧贴首个内容卡片；滚动时轨道只改变位移与透明度，避免安全区重排、闪白和裁切。
+- 轨道收起后显示不占内容布局的紧凑来源胶囊与主操作，保留当前位置、菜单和手动恢复入口；VoiceOver 启用时强制保持完整轨道。
+- 点击来源胶囊或左右轻扫会在同一首页中切换 `TimelineScreen` / `ForumScreen`。分页 Store 仍由 `AppSessionStore` 按来源缓存，因此切换后保留内容、页码与会话状态。
+- `HomeFeedChromeModel` 将当前可见来源的公告、页码、串号直达或发串动作映射到首页指令轨道；非当前页不得覆盖指令状态。
+- 指令菜单打开 `BoardManagementScreen` 大尺寸 sheet。用户可以搜索待添加版块、显式添加或移除，并通过拖动调整常驻顺序；综合线不参与排序且固定在首位。
+- `BoardPreferencesStore` 只在全新偏好上初始化前四个常驻版块；已存在的选择不会在迁移时裁剪，用户之后可添加任意数量。
+- iOS 26 使用 `glassEffect` 呈现顶部指令轨道、自定义底部 Dock 与回复 accessory；iOS 18–25 使用 `ultraThinMaterial` 降级。所有版本都没有整宽不透明 Tab 背板，并共享同一套显示、隐藏与无障碍语义。
+- 串详情通过 App 级 `AppBottomAccessoryModel` 注册回复动作，并在自定义 Dock 上方显示同材质回复胶囊；切换页签或离开详情时按 owner 清理，不再维护按系统版本分叉的页面安全区实现。
+- 订阅页的页码跳转进入 Inline Title 菜单；“我的”使用可由系统自然折叠的 Large Title。
+- `ThreadCard` 与 `PostCard` 使用无头像的紧凑元数据行；PO、管理身份、时间和串号仍保留，低频“更多”不作为外露按钮。
+
+- `RefreshableInfiniteList`：只负责紧凑列表布局、可滚动顶部 margin、下拉刷新、触底信号、显式滚顶、滚动偏移和滚动阶段事件；不拥有分页规则、导航呈现或数据身份。
 - `ThreadCard` / `PostCard` / 公告卡片：纯展示组件，不发起 API 请求。
 - `PageJumpSheet`：只验证并回传页码，不改变 Store。
 
@@ -130,7 +146,7 @@ Feed 类列表不把“当前可见项”持续写回业务状态。正常 push/
 
 ## 测试与验证
 
-`Tests/ThreadListStoreStateTests.swift` 使用假的 `XdnmbAPIClient` 验证列表、串详情和提交 Store，包括导航返回不刷新、分页追加、空页停止、错误停止与人工重试、主动刷新、身份切换、串分页、订阅结果以及发串/回复目标。
+`Tests/ThreadListStoreStateTests.swift` 使用假的 `XdnmbAPIClient` 验证列表、串详情和提交 Store，包括导航返回不刷新、分页追加、空页停止、错误停止与人工重试、主动刷新、身份切换、串分页、订阅结果以及发串/回复目标。`Tests/BoardPreferencesStoreStateTests.swift` 验证默认常驻、无限量添加、拖动顺序持久化与既有偏好迁移。`Tests/HomeNavigationStateTests.swift` 验证导航迟滞阈值、来源切换基线、回顶恢复、无障碍保护和底部 accessory 所有权。
 
 提交前至少执行：
 
@@ -145,4 +161,10 @@ Feed 类列表不把“当前可见项”持续写回业务状态。正常 push/
 
 | 日期 | 变更 |
 |---|---|
+| 2026-07-24 | 收紧首页顶部轨道与 Feed 首卡间距：content margin 与 48pt 轨道加 6pt 顶距严格对齐；发布按钮改为轨道内部固定 40pt 的圆形交互玻璃，避免突出容器轮廓。 |
+| 2026-07-23 | 合并首页系统标题栏与来源栏为单层玻璃指令轨道，并提供滚动收起后的紧凑来源胶囊；以三个常驻导航叠层和唯一透明玻璃 Dock 取代原生 TabView/Tab Bar，避免双层底栏并保留各页导航状态；串详情回复统一为 Dock accessory。 |
+| 2026-07-23 | 重构滚动导航为连续进度驱动：来源轨道改为固定布局的单层悬浮玻璃，Feed content margin 随内容自然滚走，拖动期间不触发布局动画，停止后吸附到完整状态；紧凑态释放底部 Tab Bar 空间，顶部与底部不透明背板改为透明或超薄材质回退。 |
+| 2026-07-23 | 落地 iOS 26 滚动感知双态导航：首页统一 Inline Title 与操作菜单，来源栏按 32/16pt 迟滞阈值收缩/恢复；引入 Liquid Glass、safe area bar 与 Soft Scroll Edge Effect；串详情回复迁移到可随 Tab Bar 自适应的底部 accessory，旧系统保留材质与安全区降级。 |
+| 2026-07-23 | 将版块选择合并到首页：移除独立版块 Tab，新增可横向滚动的综合线/常驻版块来源条和统一动态 toolbar；管理 sheet 支持搜索、添加、移除与拖动排序，常驻数量不设上限；各来源继续复用 `AppSessionStore` 缓存的独立分页会话。 |
+| 2026-07-23 | 重构顶层信息架构：首个 Tab 更名为“首页”并仅展示综合时间线；版块改为可搜索目录并 push 进入版块 Feed；移除重复的横向版块分页和 `MainFeedChromeModel`；帖子与回复改为无头像高密度布局，同时保留时间线切换、公告、跳页、串号直达、发串、订阅、只看 PO、回复和版块管理能力。 |
 | 2026-07-22 | 建立 `XdnmbAPIClient` 依赖边界与 App composition root；引入 `AppSessionStore`、统一 `ThreadListStore`、`ThreadStore` 与 `ComposerStore`；时间线、版块、订阅、串详情、订阅操作及发帖工作流迁移到 Store；列表返回依赖原生导航滚动保留；新增状态生命周期测试。 |

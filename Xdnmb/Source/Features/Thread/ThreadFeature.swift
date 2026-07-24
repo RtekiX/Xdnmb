@@ -24,6 +24,7 @@ private struct ThreadDetailScreenContent: View {
 
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var identity: IdentityStore
+    @EnvironmentObject private var bottomAccessory: AppBottomAccessoryModel
     @State private var actionMessage: String?
     @State private var showingReply = false
     @State private var subscriptionBusy = false
@@ -34,7 +35,7 @@ private struct ThreadDetailScreenContent: View {
             if let detail = model.detail {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 12) {
+                        LazyVStack(spacing: 8) {
                             PostCard(post: detail.post, isOriginalPoster: true)
                                 .id(detail.post.id)
                             if detail.replies.isEmpty {
@@ -68,9 +69,11 @@ private struct ThreadDetailScreenContent: View {
                             }
                         }
                         .scrollTargetLayout()
-                        .padding(16)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
                     }
                     .scrollPosition(id: threadScrollPosition, anchor: .center)
+                    .xdnmbSoftScrollEdgeEffect()
                     .background(AppTheme.groupedBackground)
                     .refreshable { await load() }
                 }
@@ -95,8 +98,8 @@ private struct ThreadDetailScreenContent: View {
                     Label(
                         "只看 PO",
                         systemImage: model.onlyPO
-                            ? "person.crop.circle.fill.badge.checkmark"
-                            : "person.crop.circle"
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle"
                     )
                 }
                 .disabled(model.isLoading)
@@ -115,21 +118,12 @@ private struct ThreadDetailScreenContent: View {
                 .disabled(subscriptionBusy)
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            Button { showingReply = true } label: {
-                Label(
-                    identity.hasIdentity ? "回复这个帖子" : "导入饼干后回复",
-                    systemImage: "arrowshape.turn.up.left"
-                )
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(.bar)
-        }
         .task(id: identity.browsingCookieID) { await load() }
+        .onAppear { configureBottomAccessory() }
+        .onChange(of: identity.hasIdentity) { configureBottomAccessory() }
+        .onDisappear {
+            bottomAccessory.clear(ownerID: accessoryOwnerID)
+        }
         .sheet(isPresented: $showingReply) {
             ComposerScreen(mode: .reply(threadID), identity: identity) { await model.reload() }
         }
@@ -198,5 +192,22 @@ private struct ThreadDetailScreenContent: View {
 
     private func remember(postID: Int?) {
         app.rememberThreadPosition(threadID: threadID, page: model.page, postID: postID)
+    }
+
+    private var replyTitle: String {
+        identity.hasIdentity ? "回复这个帖子" : "导入饼干后回复"
+    }
+
+    private var accessoryOwnerID: String {
+        "thread-\(threadID)"
+    }
+
+    private func configureBottomAccessory() {
+        bottomAccessory.configure(
+            ownerID: accessoryOwnerID,
+            title: replyTitle,
+            symbol: "arrowshape.turn.up.left",
+            action: { showingReply = true }
+        )
     }
 }

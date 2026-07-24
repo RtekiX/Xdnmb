@@ -15,12 +15,20 @@ final class BoardPreferencesStore: ObservableObject {
     private let defaults: UserDefaults
     private let orderKey = "boardPreferences.order"
     private let hiddenKey = "boardPreferences.hidden"
+    private let residentMigrationKey = "boardPreferences.residentV1"
+    private var needsResidentMigration: Bool
+    private let shouldSeedDefaultResidents: Bool
 
     init(preview: Bool = false, defaults: UserDefaults = .standard) {
         persistsChanges = !preview
         self.defaults = defaults
+        shouldSeedDefaultResidents = preview || (
+            defaults.object(forKey: orderKey) == nil
+                && defaults.object(forKey: hiddenKey) == nil
+        )
         orderedForumIDs = preview ? [] : defaults.array(forKey: orderKey) as? [Int] ?? []
         hiddenForumIDs = preview ? [] : Set(defaults.array(forKey: hiddenKey) as? [Int] ?? [])
+        needsResidentMigration = preview || !defaults.bool(forKey: residentMigrationKey)
     }
 
     func reconcile(with forums: [Forum]) {
@@ -30,6 +38,7 @@ final class BoardPreferencesStore: ObservableObject {
         let missing = forums.map(\.id).filter { !seen.contains($0) }
         orderedForumIDs = retained + missing
         hiddenForumIDs.formIntersection(validIDs)
+        migrateResidentForumsIfNeeded(validIDs: validIDs)
         persist()
     }
 
@@ -90,5 +99,18 @@ final class BoardPreferencesStore: ObservableObject {
         guard persistsChanges else { return }
         defaults.set(orderedForumIDs, forKey: orderKey)
         defaults.set(Array(hiddenForumIDs).sorted(), forKey: hiddenKey)
+    }
+
+    private func migrateResidentForumsIfNeeded(validIDs: Set<Int>) {
+        guard needsResidentMigration, !orderedForumIDs.isEmpty else { return }
+
+        if shouldSeedDefaultResidents {
+            let defaultResidents = Set(orderedForumIDs.prefix(4))
+            hiddenForumIDs = validIDs.subtracting(defaultResidents)
+        }
+
+        needsResidentMigration = false
+        guard persistsChanges else { return }
+        defaults.set(true, forKey: residentMigrationKey)
     }
 }

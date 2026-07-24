@@ -9,7 +9,7 @@ struct ThreadCard: View {
     let thread: ForumThread
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             PostHeader(post: thread.post, showsNumber: true)
             if let title = thread.post.displayTitle {
                 Text(title).font(.headline).foregroundStyle(.primary)
@@ -22,7 +22,7 @@ struct ThreadCard: View {
                 Text(thread.post.plainContent.nilIfBlank ?? "（无正文）")
                     .font(.body)
                     .foregroundStyle(.primary)
-                    .lineLimit(6)
+                    .lineLimit(4)
                     .multilineTextAlignment(.leading)
                 if let url = APIService.imageURL(
                     path: thread.post.imagePath,
@@ -30,7 +30,7 @@ struct ThreadCard: View {
                 ) {
                     RemoteImage(
                         url: url,
-                        maxHeight: 220,
+                        maxHeight: 190,
                         viewerURL: APIService.imageURL(
                             path: thread.post.imagePath,
                             extension: thread.post.imageExtension,
@@ -40,16 +40,16 @@ struct ThreadCard: View {
                 }
             }
             if let reply = thread.replies.last {
-                HStack(alignment: .top, spacing: 8) {
+                HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "arrowshape.turn.up.left.fill")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                     Text(reply.hidden ? "内容已被隐藏" : (reply.plainContent.nilIfBlank ?? "（无正文）"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(1)
                 }
-                .padding(10)
+                .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(uiColor: .tertiarySystemBackground), in: .rect(cornerRadius: 10))
             }
@@ -62,12 +62,8 @@ struct ThreadCard: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
-        .padding(16)
-        .background(AppTheme.elevated, in: .rect(cornerRadius: 18))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(.separator.opacity(0.45), lineWidth: 0.5)
-        }
+        .padding(14)
+        .background(AppTheme.elevated, in: .rect(cornerRadius: 14))
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
         .accessibilityHint("打开帖子详情")
@@ -79,7 +75,7 @@ struct PostCard: View {
     let isOriginalPoster: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             PostHeader(post: post, showsNumber: true, isOriginalPoster: isOriginalPoster)
             if let title = post.displayTitle { Text(title).font(.headline) }
             if post.hidden {
@@ -103,8 +99,8 @@ struct PostCard: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(16)
-        .background(AppTheme.elevated, in: .rect(cornerRadius: 18))
+        .padding(12)
+        .background(AppTheme.elevated, in: .rect(cornerRadius: 14))
     }
 }
 
@@ -114,26 +110,19 @@ struct PostHeader: View {
     var isOriginalPoster = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(isOriginalPoster ? AppTheme.accent.gradient : Color.gray.gradient)
-                .frame(width: 28, height: 28)
-                .overlay {
-                    Text(String(post.displayName.prefix(1)))
-                        .font(.caption.bold())
-                        .foregroundStyle(.white)
-                }
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 5) {
-                    Text(post.displayName).font(.subheadline.weight(.semibold))
-                    if isOriginalPoster { Text("PO").badgeStyle(color: AppTheme.accent) }
-                    if post.admin { Text("管理").badgeStyle(color: .red) }
-                }
-                if let createdAt = post.createdAt.nilIfBlank {
-                    Text(createdAt).font(.caption2).foregroundStyle(.secondary)
-                }
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(post.displayName)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+            if isOriginalPoster { Text("PO").badgeStyle(color: AppTheme.accent) }
+            if post.admin { Text("管理").badgeStyle(color: .red) }
+            if let createdAt = post.createdAt.nilIfBlank {
+                Text(createdAt)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            Spacer()
+            Spacer(minLength: 4)
             if showsNumber, post.id > 0 {
                 Text("No.\(post.id)")
                     .font(.caption.monospaced())
@@ -149,19 +138,13 @@ struct BoardRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "text.bubble.fill")
+            Image(systemName: "text.bubble")
                 .foregroundStyle(AppTheme.accent)
-                .frame(width: 36, height: 36)
-                .background(AppTheme.accent.opacity(0.1), in: .rect(cornerRadius: 10))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(forum.displayName).font(.headline)
-                Text(forum.summary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
+                .frame(width: 28, height: 28)
+            Text(forum.displayName)
+                .font(.body.weight(.medium))
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 }
 

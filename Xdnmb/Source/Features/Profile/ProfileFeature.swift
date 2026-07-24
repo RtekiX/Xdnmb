@@ -25,20 +25,23 @@ struct ProfileScreen: View {
     private let policiesThreadID = 11_689_471
 
     var body: some View {
-        List {
-            identityStatusSection
-            identitySection
-            accountSection
-            connectionSection
-            policiesSection
-            Section {
-                Text("Xdnmb 是非官方客户端。请遵守站点规则，并妥善保管账号、饼干和 Feed ID。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+        Group {
+            List {
+                identityStatusSection
+                identitySection
+                accountSection
+                connectionSection
+                policiesSection
+                Section {
+                    Text("Xdnmb 是非官方客户端。请遵守站点规则，并妥善保管账号、饼干和 Feed ID。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .navigationTitle("我的")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
+        .xdnmbSoftScrollEdgeEffect()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showingPrivacy = true } label: {
